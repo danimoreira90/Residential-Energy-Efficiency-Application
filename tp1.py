@@ -1,5 +1,14 @@
 import streamlit as st
-import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from data_processing import (
+    load_cleaned_data, clean_data, plot_correlation_matrix, plot_efficiency_distribution,
+    plot_region_efficiency, plot_monthly_evolution, describe_data
+)
+from load_excel_data import load_excel_sheets
+
+st.set_page_config(layout="wide")
+
 
 # Título do projeto
 st.title("🌍 Eficiência Energética Residencial - Projeto ODS7")
@@ -26,15 +35,44 @@ st.markdown("""
 - [Documentação Streamlit](https://docs.streamlit.io/)
 """)
 
-# Exibir amostras dos dados
-st.header("Amostra de Dados")
-st.write("Abaixo está uma amostra dos dados que serão utilizados ao longo do projeto.")
+st.header("Amostra de Dados Processados")
 
-# Carregar e exibir os dados (substitua o caminho com o local correto dos seus datasets)
-df = pd.read_csv('MidCase_2030_efficiency1_dissipation0.5_value.csv')
-
-# Exibir as primeiras 5 linhas do DataFrame
+df = load_cleaned_data()
+df = clean_data(df)
 st.dataframe(df.head())
 
-# Nota final
-st.info("Esta é uma versão demo da aplicação. Os próximos passos incluirão a integração completa dos dados e a implementação de funcionalidades avançadas.")
+# Exibir visualizações
+if st.button("Exibir Matriz de Correlação"):
+    plot_correlation_matrix(df, st)
+
+if st.button("Distribuição da Eficiência por Região"):
+    plot_efficiency_distribution(df, st)
+
+if st.button("Eficiência por Região"):
+    plot_region_efficiency(df, st)
+
+if st.button("Evolução da Energia e Lucro por Mês"):
+    plot_monthly_evolution(df, st)
+
+st.info("Aplicação desenvolvida para análise de eficiência energética em residências.")
+
+# Caminho para o arquivo Excel
+filepath = "D:\Pastas\Infnet\Infnet - 2024.2\Projeto de bloco\TP1\Dados_abertos_Consumo_Mensal.xlsx"
+
+# Carrega todos os dados
+data_sheets = load_excel_sheets(filepath)
+
+# Adiciona um título ao app
+st.title('Visualização de Dados de Consumo Energético - EPE - Empresa de Pesquisa Energética')
+
+if 'sheet_name' not in st.session_state:
+    st.session_state.sheet_name = list(data_sheets.keys())[0]
+
+# Cria uma seleção para as subplanilhas
+sheet_name = st.selectbox('Escolha uma subplanilha para visualizar', list(data_sheets.keys()))
+
+# Exibe os dados da subplanilha escolhida
+st.write(f"Exibindo dados de: {sheet_name}")
+st.dataframe(data_sheets[sheet_name])
+
+
