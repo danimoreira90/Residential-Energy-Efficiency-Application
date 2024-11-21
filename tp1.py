@@ -40,29 +40,22 @@ def home():
     para aquecimento, resfriamento e outras necessidades domésticas, contribuindo assim para um planeta mais sustentável.
     """, unsafe_allow_html=True)
 
-        # Links úteis
-    st.markdown("""
-    ## Links Úteis
-    Aprofunde seus conhecimentos e entenda mais sobre as iniciativas globais para a eficiência energética:
-    - [ODS7 - Energia Limpa e Acessível](https://www.un.org/sustainabledevelopment/energy/)
-    - [NREL - National Renewable Energy Laboratory](https://www.nrel.gov/)
-    - [Documentação Streamlit](https://docs.streamlit.io/)
-    """, unsafe_allow_html=True)
-
     # Visualização de nuvem de palavras
     st.subheader("Foco em Palavras-Chave de Energia")
     plot_word_cloud()  # Supõe-se que a função plot_word_cloud() cria e exibe uma nuvem de palavras.
 
     st.info("Explore as outras seções para visualizações interativas e mais informações sobre eficiência energética.")
 
-# Função para criar e exibir uma nuvem de palavras
+@st.cache_data  # Cache para a nuvem de palavras
 def plot_word_cloud():
-    text = "energia renovável sustentabilidade eficiência energética solar eólica hidrelétrica biomassa conservação de energia gestão de energia redução de emissões energia limpa fotovoltaica turbinas eólicas painéis solares energia térmica células de combustível geotérmica energia do oceano reciclagem de energia inovação energética"
+    text = "energia renovável sustentabilidade eficiência energética solar eólica hidrelétrica biomassa conservação energia gestão energia redução emissões energia limpa fotovoltaica turbinas eólicas painéis solares energia térmica células combustível geotérmica energia do oceano reciclagem energia inovação energética"
     wordcloud = WordCloud(width=800, height=400, background_color='white').generate(text)
     plt.figure(figsize=(8, 4))
-    plt.imshow(wordcloud, interpolation="bilinear")
-    plt.axis("off")
-    st.pyplot()
+    fig, ax = plt.subplots(figsize=(8, 4))  # Cria um objeto de figura e um de eixo
+    ax.imshow(wordcloud, interpolation="bilinear")
+    ax.axis("off")  # Remove os eixos
+    st.pyplot(fig)  # Exibe a figura
+
 
 def data_analysis():
     st.title("Análise de Dados")
@@ -79,7 +72,29 @@ def data_analysis():
 
 def upload_download():
     st.title("Upload e Download de Dados")
-    st.write("Funcionalidade para carregar e baixar dados.")
+    st.subheader("Download de Dados Processados")
+
+    df = load_cleaned_data()  # Carregar dados processados
+    df = clean_data(df)  # Limpar dados
+
+    # Converter DataFrame para CSV para download
+    @st.cache_data
+    def convert_df_to_csv(df):
+        return df.to_csv(index=False).encode('utf-8')
+    
+    csv = convert_df_to_csv(df)  # Obter a versão CSV dos dados
+
+    st.download_button(
+        label="Baixar Dados Limpos",
+        data=csv,
+        file_name="dados_limpos.csv",
+        mime="text/csv",
+        help="Clique aqui para baixar os dados limpos em formato CSV."
+    )
+
+    st.info("Clique no botão acima para baixar os dados limpos processados em formato CSV.")
+
+    
 
 def settings():
     st.title("Configurações")
