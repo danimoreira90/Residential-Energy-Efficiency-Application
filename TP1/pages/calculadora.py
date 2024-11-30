@@ -2,8 +2,8 @@
 import streamlit as st
 import pandas as pd
 
-# Carregar os dados do JSON
-@st.cache  # Cache para melhor performance, carrega os dados uma única vez
+
+@st.cache_data  
 def load_data():
     path = 'D:\\Pastas\\Infnet\\Infnet - 2024.2\\Projeto de bloco\\Dados\\calculadora.json'
     return pd.read_json(path)
