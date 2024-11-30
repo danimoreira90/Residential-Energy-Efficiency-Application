@@ -4,6 +4,8 @@ from pages.home import home
 from pages.data_analysis import data_analysis
 from pages.upload_download import upload_download
 from pages.settings import settings
+from pages.calculadora import calculadora
+
 
 # Configuração da página
 st.set_page_config(page_title="Eficiência Energética Residencial", layout="wide")
@@ -13,7 +15,8 @@ pages = {
     "Home": home,
     "Análise de Dados": data_analysis,
     "Upload/Download de Dados": upload_download,
-    "Configurações": settings
+    "Configurações": settings,
+    "Calculadora de energia": calculadora
 }
 
 # Menu lateral para seleção de página
