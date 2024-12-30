@@ -1,5 +1,7 @@
 import streamlit as st
-# Importa as funções das páginas da pasta pages
+st.set_page_config(page_title="Eficiência Energética Residencial", layout="wide")
+
+
 from pages.home import home
 from pages.data_analysis import data_analysis
 from pages.upload_download import upload_download
@@ -10,7 +12,7 @@ from pages.aneel_data_page import aneel_data_page
 
 
 # Configuração da página
-st.set_page_config(page_title="Eficiência Energética Residencial", layout="wide")
+
 
 # Dicionário que mapeia nomes para funções
 pages = {

@@ -10,11 +10,14 @@ def load_data():
     path = 'D:\\Pastas\\Infnet\\Infnet - 2024.2\\Projeto de bloco\\Dados\\calculadora.json'
     return pd.read_json(path)
 
-st.title("Calculadora de consumo energético residencial")
+#st.title("Calculadora de consumo energético residencial")
 
 # Função que encapsula toda a lógica da calculadora
 def calculadora():
     data = load_data()
+
+    st.title("Calculadora de consumo energético residencial")
+    st.markdown("A partir dos painéis abaixo, calcule o consumo dos eletrodomésticos da sua residência.")
 
     # Dropdown para selecionar a distribuidora
     option = st.selectbox('Escolha a Distribuidora', data['sigDistribuidora'].unique())

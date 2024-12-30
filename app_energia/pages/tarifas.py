@@ -1,5 +1,7 @@
 import pandas as pd
 import streamlit as st
+import matplotlib.pyplot as plt
+
 
 @st.cache
 def load_excel_data(sheet_name):
@@ -20,32 +22,130 @@ consumo_eletrobras = load_excel_data('CONSUMO_ELETROBRAS_1990-2003')
 #     st.write("## Consumo e Número de Consumidores por Sistema e Classe")
 #     st.bar_chart(data.groupby(['Sistema', 'Classe'])['Consumo'].sum())
 
-def plot_consumo_sam(data):
+def plot_consumo_sam_plt(data):
     # Verifique se as colunas necessárias estão presentes
     if not {'Sistema', 'Classe', 'Consumo'}.issubset(data.columns):
-        st.error("As colunas necessárias não estão presentes no DataFrame.")
-        st.write(data.columns)  # Mostrar as colunas atuais para debug
-        return  
+        print("As colunas necessárias não estão presentes no DataFrame.")
+        # Mostrar as colunas atuais para debug
+        print("Colunas disponíveis:", data.columns)
+        return
 
-    # Se estiver tudo certo, prossiga com a plotagem
-    grouped_data = data.groupby(['Sistema', 'Classe'])['Consumo'].sum()
-    st.bar_chart(grouped_data)
-
-def plot_consumo_sam_uf(data):
-    st.write("## Consumo e Número de Consumidores por UF")
-    st.line_chart(data.groupby('UF')['Consumo'].sum())
-
-def plot_setor_industrial(data):
+    # Agrupar os dados
+    grouped_data = data.groupby(['Sistema', 'Classe'])[
+        'Consumo'].sum().unstack()
     st.write("## Consumo por Setor Industrial e Região")
-    st.area_chart(data.groupby(['SetorIndustrial', 'Regiao'])['Consumo'].sum())
 
-def plot_consumo_ben_rg(data):
+    # Criar o gráfico de área
+    fig, ax = plt.subplots(figsize=(12, 6))
+    grouped_data.plot(kind='area', alpha=0.7, ax=ax)
+    ax.set_title("Consumo por Setor Industrial e Região", fontsize=16)
+    ax.set_xlabel("Setor Industrial", fontsize=14)
+    ax.set_ylabel("Consumo", fontsize=14)
+    ax.legend(title="Região", fontsize=10)
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+
+    # Exibir o gráfico no Streamlit
+    st.pyplot(fig)
+
+
+def plot_consumo_sam_uf_plt(data):
+    st.write("## Consumo e Número de Consumidores por UF")
+
+    # Agrupar os dados
+    grouped_data = data.groupby('UF')['Consumo'].sum()
+
+    # Criar o gráfico de linha
+    fig, ax = plt.subplots(figsize=(12, 6))
+    grouped_data.plot(kind='line', marker='o', ax=ax)
+
+    # Configurar o gráfico
+    ax.set_title("Consumo e Número de Consumidores por UF", fontsize=16)
+    ax.set_xlabel("UF", fontsize=14)
+    ax.set_ylabel("Consumo", fontsize=14)
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+
+    # Mostrar o gráfico no Streamlit
+    st.pyplot(fig)
+
+
+def plot_setor_industrial_plt(data):
+    st.write("## Consumo por Setor Industrial e Região")
+
+    # Agrupar os dados
+    grouped_data = data.groupby(['SetorIndustrial', 'Regiao'])[
+        'Consumo'].sum().unstack()
+
+    # Criar o gráfico de área
+    fig, ax = plt.subplots(figsize=(12, 6))
+    grouped_data.plot(kind='area', alpha=0.7, ax=ax)
+
+    # Configurar o gráfico
+    ax.set_title("Consumo por Setor Industrial e Região", fontsize=16)
+    ax.set_xlabel("Setor Industrial", fontsize=14)
+    ax.set_ylabel("Consumo", fontsize=14)
+    ax.legend(title="Região", fontsize=10)
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+
+    # Mostrar o gráfico no Streamlit
+    st.pyplot(fig)
+
+
+def plot_consumo_ben_rg_plt(data):
     st.write("## Consumo por Região e Classe (1970-1989)")
-    st.line_chart(data.groupby(['Regiao', 'Classe'])['Consumo'].sum())
 
-def plot_consumo_eletrobras(data):
+    # Agrupar os dados
+    grouped_data = data.groupby(['Regiao', 'Classe'])[
+        'Consumo'].sum().unstack()
+
+    # Criar o gráfico de linha
+    fig, ax = plt.subplots(figsize=(12, 6))
+    grouped_data.plot(kind='line', marker='o', ax=ax)
+
+    # Configurar o gráfico
+    ax.set_title("Consumo por Região e Classe (1970-1989)", fontsize=16)
+    ax.set_xlabel("Região", fontsize=14)
+    ax.set_ylabel("Consumo", fontsize=14)
+    ax.legend(title="Classe", fontsize=10)
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+
+    # Mostrar o gráfico no Streamlit
+    st.pyplot(fig)
+
+
+def plot_consumo_eletrobras_plt(data):
     st.write("## Consumo Eletrobras por Região e Classe (1990-2003)")
-    st.line_chart(data.groupby(['Regiao', 'Classe'])['Consumo'].sum())
+
+    # Agrupar os dados
+    grouped_data = data.groupby(['Regiao', 'Classe'])[
+        'Consumo'].sum().unstack()
+
+    # Criar o gráfico de linha
+    fig, ax = plt.subplots(figsize=(12, 6))
+    grouped_data.plot(kind='line', marker='o', ax=ax)
+
+    # Configurar o gráfico
+    ax.set_title(
+        "Consumo Eletrobras por Região e Classe (1990-2003)", fontsize=16)
+    ax.set_xlabel("Região", fontsize=14)
+    ax.set_ylabel("Consumo", fontsize=14)
+    ax.legend(title="Classe", fontsize=10)
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+
+    # Mostrar o gráfico no Streamlit
+    st.pyplot(fig)
+
+
+# plot_consumo_sam_plt(consumo_sam)
+# plot_consumo_sam_uf_plt(consumo_sam_uf)
+# plot_setor_industrial_plt(setor_industrial)
+# plot_consumo_ben_rg_plt(consumo_ben_rg)
+# plot_consumo_eletrobras_plt(consumo_eletrobras)
+
 
 
 def tarifas():
@@ -65,13 +165,13 @@ def tarifas():
     data = load_excel_data(option)
 
     if option == 'CONSUMO E NUMCONS SAM':
-        plot_consumo_sam(data)
+        plot_consumo_sam_plt(consumo_sam)
     elif option == 'CONSUMO E NUMCONS SAM UF':
-        plot_consumo_sam_uf(data)
+        plot_consumo_sam_uf_plt(consumo_sam_uf)
     elif option == 'SETOR INDUSTRIAL POR RG':
-        plot_setor_industrial(data)
+        plot_setor_industrial_plt(setor_industrial)
     elif option == 'CONSUMO_BEN_RG_1970-1989':
-        plot_consumo_ben_rg(data)
+        plot_consumo_ben_rg_plt(consumo_ben_rg)
     elif option == 'CONSUMO_ELETROBRAS_1990-2003':
-        plot_consumo_eletrobras(data)
+        plot_consumo_eletrobras_plt(consumo_eletrobras)
 
