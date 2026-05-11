@@ -1,8 +1,42 @@
-.claude/
+# Python
 __pycache__/
-*.pyc
-data/
-*.duckdb
-.env
+*.py[cod]
+*.pyo
 .venv/
+*.egg-info/
+dist/
+build/
+
+# Environment — never commit secrets
+.env
+
+# Tooling
+.claude/
+
+# Data — LGPD: user PII must not leave the local machine (HR-6)
+data/energia.duckdb
+data/aneel-cache.sqlite
+
+# Large wrong-domain NREL CSVs — DROP verdict (see docs/MIGRATION.md)
+app_energia/High_RE_2030_*.csv
+app_energia/MidCase_2030_*.csv
+app_energia/Low_RE_2030_*.csv
+app_energia/cleaned_energy_data.csv
+
+# Duplicate tariff CSV — DROP verdict (DUPLICATED)
+Dados/*\ (1).csv
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+**/.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
 node_modules/

@@ -1,0 +1,8 @@
+{
+  "pythonVersion": "3.11",
+  "venvPath": ".",
+  "venv": ".venv",
+  "typeCheckingMode": "strict",
+  "include": ["src", "tests"],
+  "exclude": ["**/__pycache__", "app_energia", "Dados"]
+}
