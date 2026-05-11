@@ -54,6 +54,12 @@ Open [http://localhost:8501](http://localhost:8501).
 
 ```
 Residential-Energy-Efficiency-Application/
+├── README.md                       # this file
+├── CLAUDE.md                       # Claude Code project instructions
+├── AGENTS.md                       # Multi-model agent instructions
+├── pyproject.toml                  # uv-managed dependencies (created in Sprint 0)
+├── .gitignore
+│
 ├── src/energia/                    # Python package
 │   ├── config.py                   # Pydantic Settings
 │   ├── models.py                   # Bill, User, SolarSite, etc.
@@ -61,23 +67,34 @@ Residential-Energy-Efficiency-Application/
 │   ├── bill/                       # Bill parsing, storage, analysis
 │   ├── tariff/                     # ANEEL client, bandeira, tarifa branca, distributors
 │   ├── solar/                      # pvlib wrappers, sizing, payback
-│   ├── chat/                       # Tool registry, orchestrator, prompts
+│   ├── chat/                       # LangGraph orchestrator + LangChain tools
+│   │   ├── state.py                # ChatState TypedDict
+│   │   ├── graph.py                # StateGraph + GRAPH singleton
+│   │   ├── nodes.py                # agent_node, tool_node, routing
+│   │   ├── tools/                  # LangChain @tool wrappers per domain
+│   │   ├── prompts.py              # PT-BR system prompt (PROTECTED)
+│   │   ├── audit.py                # DuckDBAuditCallback — HR-5
+│   │   └── budget.py               # TokenBudgetCallback — HR-7
 │   └── ui/                         # Streamlit app
 │
 ├── migrations/                     # Timestamped DuckDB schema migrations (immutable once applied)
-│
 ├── tests/                          # pytest suite — mirrors src/ structure
-│
 ├── evals/                          # Capability + regression evals (JSONL)
-│
-├── notebooks/                      # Pre-existing scratch notebooks (not imported by src/)
+├── notebooks/                      # Scratch notebooks (not imported by src/)
 │
 └── docs/
+    ├── KICKOFF.md                  # Architecture blueprint
+    ├── PLAN.md                     # Sprint-by-sprint execution plan
+    ├── CONTEXT.md                  # Domain glossary
+    ├── INVENTORY.md                # Codebase audit (Task 0.1 output)
+    ├── GAPS.md                     # Production-readiness gaps (Task 0.1 output)
+    ├── MIGRATION.md                # Legacy → new layout mapping (Task 0.2 output)
+    ├── architecture-plain.md       # Plain-language architecture overview
+    ├── lgpd-log.md                 # LGPD activity log
+    ├── tech-debt.md                # Known debt
     ├── adr/                        # Architecture Decision Records
     ├── agentic-engineering/        # ROLES, PROTECTED-PATHS, ANTI-CHEAT, etc.
-    ├── sessions/                   # Session-by-session work logs
-    ├── lgpd-log.md                 # LGPD activity log
-    └── tech-debt.md                # Known debt
+    └── sessions/                   # Session-by-session work logs
 ```
 
 ## Scripts
@@ -135,7 +152,7 @@ See `.env.example` for all required variables. The key ones:
 | ADR | Decision |
 |-----|---------|
 | [ADR-001](docs/adr/ADR-001-streamlit-only-v1.md) | Streamlit-only for v1; defer WhatsApp + native mobile |
-| [ADR-002](docs/adr/ADR-002-tool-registry-pattern.md) | Anthropic SDK direct + tool registry; no LangChain |
+| [ADR-002](docs/adr/ADR-002-langgraph-orchestration.md) | LangGraph for chat orchestration; custom HR-5 audit; no LangChain core |
 | [ADR-003](docs/adr/ADR-003-duckdb-local-file.md) | DuckDB local file over Postgres for single-user MVP |
 | [ADR-004](docs/adr/ADR-004-aneel-as-tariff-source.md) | ANEEL Open Data as authoritative tariff source |
 | [ADR-005](docs/adr/ADR-005-pvlib-with-nasa-power.md) | pvlib + NASA POWER for solar feasibility math |
