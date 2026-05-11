@@ -1,0 +1,8 @@
+.claude/
+__pycache__/
+*.pyc
+data/
+*.duckdb
+.env
+.venv/
+node_modules/
