@@ -1,4 +1,7 @@
 """Streamlit chat UI — entry point for `uv run streamlit run src/energia/ui/streamlit_app.py`."""
+from dotenv import load_dotenv
+load_dotenv()
+
 import uuid
 from typing import Any
 

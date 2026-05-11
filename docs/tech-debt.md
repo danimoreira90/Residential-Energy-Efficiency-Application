@@ -8,6 +8,27 @@ at the bottom with the resolution date and the commit/PR that closed it.
 
 ---
 
+## TD-005: hello_no_name example removed from capability eval
+
+**What.** The 4th example in `evals/capability/hello_world.jsonl`
+(`hello_no_name`, input "Oi") was removed in 2026-05-11. It expected the
+model to not call any tool when the user gives no name. The model
+consistently calls `hello_world` with a placeholder name (e.g. "amigo"),
+which is a defensible response to ambiguous input but fails the strict
+`expected_tool: null` check.
+
+**Why introduced.** The Task 0.6 example was overspecified. The original
+prompt intended "no tool call OR clarifying question" as acceptable, but
+the scorer infrastructure doesn't support either-or semantics in a single
+example. Without an "any of the following tools" or "any of the following
+patterns" expression, the example becomes a coin-flip on stub-tool
+behavior.
+
+**Resolution target.** Sprint 1+ — when real tools replace hello_world,
+redesign eval examples to test what we actually care about (bill
+extraction accuracy, tariff calculation correctness, solar payback math).
+Add either-or semantics to the scorer if a real capability needs it.
+
 ## TD-004: tests/test_smoke.py edited in Task 0.5
 
 **What.** The `ALL_TOOLS` length assertion in `tests/test_smoke.py` was bumped

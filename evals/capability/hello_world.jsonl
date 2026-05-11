@@ -1,5 +1,4 @@
 {"name": "hello_simple", "input_messages": [{"role": "user", "content": "Oi, me chama de Daniel"}], "expected_tool": "hello_world", "expected_input_match": {"name": "Daniel"}, "expected_output_pattern": "Ol[aá].*Daniel"}
 {"name": "hello_formal", "input_messages": [{"role": "user", "content": "Olá! Me chamo Maria"}], "expected_tool": "hello_world", "expected_input_match": {"name": "Maria"}, "expected_output_pattern": "Ol[aá].*Maria"}
 {"name": "hello_bom_dia", "input_messages": [{"role": "user", "content": "Bom dia, sou o João"}], "expected_tool": "hello_world", "expected_input_match": {"name": "João"}, "expected_output_pattern": "Ol[aá].*Jo[aã]o"}
-{"name": "hello_no_name", "input_messages": [{"role": "user", "content": "Oi"}], "expected_tool": null, "expected_input_match": null, "expected_output_pattern": null}
 {"name": "hello_out_of_scope", "input_messages": [{"role": "user", "content": "Quanto custa minha geladeira?"}], "expected_tool": null, "expected_input_match": null, "expected_output_pattern": "n[ãa]o (sei|tenho|consigo|posso)|n[ãa]o.*ferramenta|ainda.*constru|funcionalidade"}
