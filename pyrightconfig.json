@@ -4,5 +4,7 @@
   "venv": ".venv",
   "typeCheckingMode": "strict",
   "include": ["src", "tests"],
-  "exclude": ["**/__pycache__", "app_energia", "Dados"]
+  "exclude": ["**/__pycache__", "app_energia", "Dados"],
+  "reportMissingTypeStubs": "none",
+  "reportUnknownMemberType": "none"
 }

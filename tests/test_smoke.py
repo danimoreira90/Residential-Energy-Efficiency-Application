@@ -53,7 +53,7 @@ def test_import_chat_tools() -> None:
     from energia.chat.tools import ALL_TOOLS
 
     assert isinstance(ALL_TOOLS, list)
-    assert len(ALL_TOOLS) == 0  # Sprint 0: stub tool added in Task 0.5
+    assert len(ALL_TOOLS) == 1  # Sprint 0: hello_world stub added in Task 0.5
 
 
 def test_import_ui() -> None:

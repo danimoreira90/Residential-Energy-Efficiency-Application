@@ -8,7 +8,7 @@ exclude = ["app_energia", "Dados"]
 
 [lint]
 select = ["E", "F", "I", "N", "W", "UP"]
-ignore = []
+ignore = ["N818"]  # TokenBudgetExceeded name matches PLAN.md spec
 
 [lint.isort]
 known-first-party = ["energia"]
