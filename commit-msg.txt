@@ -1,0 +1,12 @@
+﻿feat(evals): Task 0.6 — eval scaffolding + hello_world capability eval
+
+- Add evals/capability/hello_world.jsonl (5 examples covering greetings,
+  no-name input, and out-of-scope HR-5 guard)
+- Add evals/regression.jsonl (empty baseline, append-only per HR-4)
+- Add src/energia/evals/ package: scorers.py (tool_called, input_matches,
+  output_matches_pattern), runner.py (load_eval, run_example, score_attempt,
+  run_capability, run_regression with documented pass@3 / pass^3 math),
+  run.py (CLI, exit 0/1/2 for pass/fail/skip)
+- Add tests/evals/: 15 tests (7 runner + 8 scorers), all mocked — no API
+  calls in CI; real API reserved for manual python -m energia.evals.run
+- pyright 0 errors, ruff clean, 41 tests pass
