@@ -1,9 +1,9 @@
 # Migration Plan
 
 **Generated:** 2026-05-10
-**Branch:** quality/migration-plan
-**Inputs:** INVENTORY.md (Task 0.1), GAPS.md (Task 0.1), KICKOFF.md
-**Purpose:** Maps every file in the existing `app_energia/` codebase to its fate in the target `src/energia/` package. No code moves until Daniel reviews and approves this document.
+**Branch:** main (consolidated)
+**Inputs:** INVENTORY.md (Task 0.1), GAPS.md (Task 0.1), KICKOFF.md (LangGraph-updated per ADR-002)
+**Purpose:** Maps every file in the existing `app_energia/` codebase to its fate in the target `src/energia/` package. Open questions Q1–Q5 are RESOLVED inline in Section 7.
 
 ---
 
@@ -71,10 +71,16 @@ src/energia/
 │
 ├── chat/
 │   ├── __init__.py
-│   ├── orchestrator.py     # Anthropic SDK tool-use loop; HR-7 token guardrail
-│   ├── tools.py            # ToolRegistry decorator (exact blueprint from KICKOFF.md)
+│   ├── state.py            # ChatState TypedDict (LangGraph state)
+│   ├── graph.py            # StateGraph builder + compiled GRAPH singleton
+│   ├── nodes.py            # agent_node, tool_node, route_after_agent
+│   ├── tools/              # LangChain @tool wrappers around domain functions
+│   │   ├── __init__.py     # ALL_TOOLS list
+│   │   └── hello.py        # Sprint 0 stub @tool
 │   ├── prompts.py          # SYSTEM_PROMPT in PT-BR; HR-5 discipline  [PROTECTED]
-│   └── memory.py           # Conversation history → DuckDB conversations/messages tables
+│   ├── audit.py            # DuckDBAuditCallback — HR-5 audit trail
+│   ├── budget.py           # TokenBudgetCallback — HR-7 cost guardrail
+│   └── memory.py           # Conversation persistence in DuckDB
 │
 └── ui/
     ├── __init__.py
@@ -120,7 +126,7 @@ Columns: **Source path** | **INVENTORY verdict** | **MIGRATION verdict** | **Tar
 
 | Source | INVENTORY | MIGRATION | Target | Sprint | Required transformations | Justification |
 |--------|-----------|-----------|--------|--------|--------------------------|---------------|
-| `app_energia/app.py` | Refactor | REWRITE | `src/energia/ui/streamlit_app.py` | Sprint 0 | Drop 7-page sidebar nav; add `st.chat_message` + `st.chat_input` loop; add `st.file_uploader` for bill images; add `st.session_state['session_id']` minting (UUID); integrate `chat.orchestrator.chat()`; absolute imports `from energia.*`; sidebar: session token counter, reset button | Router concept survives; entire UI structure changes from multi-page nav to chatbot |
+| `app_energia/app.py` | Refactor | REWRITE | `src/energia/ui/streamlit_app.py` | Sprint 0 | Drop 7-page sidebar nav; add `st.chat_message` + `st.chat_input` loop; add `st.file_uploader` for bill images; add `st.session_state['session_id']` minting (UUID); invoke `chat.graph.GRAPH.invoke()` with `DuckDBAuditCallback` + `TokenBudgetCallback` in `config`; absolute imports `from energia.*`; sidebar: session token counter, reset button | Router concept survives; entire UI structure changes from multi-page nav to LangGraph-backed chatbot |
 | `app_energia/data_processing.py` | Drop | DROP | — | — | WRONG-DOMAIN | All 8 functions target NREL US grid regions/scenarios; `efficiency = total_profit / energy` measures US grid service value, not Brazilian residential consumption; no business logic carries |
 | `app_energia/fastapi_server.py` | Refactor | PORT | `src/energia/tariff/aneel.py` | Sprint 2 | `fetch_data_from_aneel()` → `AneelClient.fetch()`; add `httpx.Timeout(10.0)`; replace hardcoded URL (line 9) with `settings.ANEEL_BASE_URL`; replace bare `Exception` (line 21) with `AneelAPIError(status_code, message)`; wrap in `httpx.TimeoutException` handler; add `@cached(expire=86400)` (requests-cache); type return `list[dict[str, Any]]`; FastAPI route `fetch_data()` → DROP (no FastAPI in v1) | ANEEL httpx call pattern correct; only FastAPI wrapper discarded |
 | `app_energia/load_excel_data.py` | Drop | DROP | — | — | OBSOLETE-DEPENDENCY | One-liner `pd.ExcelFile` wrapper; no business logic; superseded by direct `pd.read_excel()` calls inside `tariff/` data loaders |
@@ -138,7 +144,7 @@ Columns: **Source path** | **INVENTORY verdict** | **MIGRATION verdict** | **Tar
 
 | Source | INVENTORY | MIGRATION | Target | Sprint | Required transformations | Justification |
 |--------|-----------|-----------|--------|--------|--------------------------|---------------|
-| `app_energia/CRISP_DM_&_TDSP.ipynb` | Keep (docs) | KEEP-AS-DOCS | `notebooks/CRISP_DM_TDSP.ipynb` | Sprint 0 | Rename (remove `&`); add a top markdown cell noting that the data-source section (cell-2) reflects the pre-pivot NREL state | All-markdown; valuable CRISP-DM / TDSP methodology context |
+| `app_energia/CRISP_DM_&_TDSP.ipynb` | Keep (docs) | KEEP-AS-DOCS | `notebooks/CRISP_DM_and_TDSP.ipynb` | Sprint 0 | Rename (replace `&` with `_and_`); add a top markdown cell noting that the data-source section (cell-2) reflects the pre-pivot NREL state | All-markdown; valuable CRISP-DM / TDSP methodology context |
 | `app_energia/data.ipynb` | Drop | DROP | — | — | WRONG-DOMAIN + DUPLICATED | All 29 code cells target NREL US data; `remove_outliers_iqr()` (cell-15) is a character-for-character duplicate of `data_processing.py:11–18`; 442 KB of embedded DataFrame outputs bloat the file |
 | `app_energia/problema_de_negocio.ipynb` | Keep (docs) | KEEP-AS-DOCS | `notebooks/problema_de_negocio.ipynb` | Sprint 0 | Add top markdown cell noting that "dados em tempo real" framing (cell-1) reflects the pre-chatbot state | All-markdown; core business problem statement valid for v1 |
 
@@ -219,7 +225,7 @@ These functions are extracted from `calculadora.py` (REWRITE verdict) and housed
 | **Existing code** | Lines 41–43: `power_electric_kW = power_electric / 1000; electrical_consumption = amount_devices * power_electric_kW * use_duration * period; cost = electrical_consumption * tariff` |
 | **New signature** | `def estimate_device_cost(power_w: float, quantity: int, hours_per_day: float, days: int, tariff_brl_per_kwh: float) -> DeviceCostResult` |
 | **Target module** | `src/energia/bill/analysis.py` |
-| **Required transformations** | (1) Extract inline math to a standalone typed function. (2) Return `DeviceCostResult` Pydantic model with fields `device_kwh_month`, `cost_brl_month`, `assumptions` (dict of inputs for audit). (3) Validate `power_w > 0`, `quantity >= 1`, `hours_per_day` in (0, 24], `days` in [1, 31], `tariff_brl_per_kwh > 0` — raise `ValueError` on invalid input. (4) This function does not call the tariff API directly; the caller (`chat/orchestrator.py`) passes the tariff value obtained from `get_tariff()`. |
+| **Required transformations** | (1) Extract inline math to a standalone typed function. (2) Return `DeviceCostResult` Pydantic model with fields `device_kwh_month`, `cost_brl_month`, `assumptions` (dict of inputs for audit). (3) Validate `power_w > 0`, `quantity >= 1`, `hours_per_day` in (0, 24], `days` in [1, 31], `tariff_brl_per_kwh > 0` — raise `ValueError` on invalid input. (4) This function does not call the tariff API directly; the `chat/tools/bill.py` wrapper that exposes it as a LangChain `@tool` is responsible for fetching the tariff via `get_tariff()` before invoking it (Sprint 2 wiring). |
 | **Test plan** | Assert `estimate_device_cost(1000, 1, 8, 30, 0.85)` returns `device_kwh_month == 240.0` and `cost_brl_month == 204.0`; assert `ValueError` raised when `power_w <= 0`. |
 
 ---
@@ -271,7 +277,7 @@ Groups every PORT and REWRITE item (existing code → target module) plus all gr
 | Action | Source | Target |
 |--------|--------|--------|
 | REWRITE | `app_energia/app.py` | `src/energia/ui/streamlit_app.py` |
-| KEEP-AS-DOCS | `app_energia/CRISP_DM_&_TDSP.ipynb` | `notebooks/CRISP_DM_TDSP.ipynb` |
+| KEEP-AS-DOCS | `app_energia/CRISP_DM_&_TDSP.ipynb` | `notebooks/CRISP_DM_and_TDSP.ipynb` |
 | KEEP-AS-DOCS | `app_energia/problema_de_negocio.ipynb` | `notebooks/problema_de_negocio.ipynb` |
 | KEEP-AS-DOCS | `app_energia/Dados_abertos_Consumo_Mensal.xlsx` | `Dados/` |
 | KEEP-AS-DOCS | `app_energia/Python App - Business Model Canvas.pdf` | `docs/reference/` |
@@ -282,7 +288,7 @@ Groups every PORT and REWRITE item (existing code → target module) plus all gr
 
 | New module | Key content |
 |-----------|-------------|
-| `pyproject.toml` + `uv.lock` | anthropic, pydantic, pydantic-settings, pvlib, duckdb, streamlit, httpx, requests-cache, pandas, python-dotenv, pytest, ruff |
+| `pyproject.toml` + `uv.lock` | langgraph, langchain-core, langchain-anthropic, anthropic, pydantic, pydantic-settings, pvlib, duckdb, streamlit, httpx, requests-cache, pandas, python-dotenv, pytest, ruff. Explicitly NOT included: `langchain` (meta-package), `langchain-community`, `langsmith` |
 | `.gitignore` | `*.pyc`, `__pycache__/`, `.venv/`, `data/energia.duckdb`, `data/aneel-cache.sqlite`, all dropped CSVs and RARs |
 | `ruff.toml` | `line-length = 100`, `target-version = "py311"` |
 | `pyrightconfig.json` | `"strict": true`, `"pythonVersion": "3.11"` |
@@ -292,9 +298,14 @@ Groups every PORT and REWRITE item (existing code → target module) plus all gr
 | `src/energia/config.py` | `pydantic-settings` `Settings`; eliminates all 4 hardcoded paths; `TARIFF_FALLBACK_PATH` default points to `data/tariff_fallback_b1.csv` (file does not need to exist until Sprint 2 — `config.py` does not validate file existence at import time) |
 | `src/energia/models.py` | `Bill`, `User`, `Installation`, `SolarSite`, `TariffSnapshot`, `TariffRate`, `DeviceCostResult`, `BandeiraStatus`, `ToolCall`, `Conversation`, `Message` |
 | `src/energia/db.py` | `DuckDBSession`; `run_migrations()` scans `migrations/*.sql` in timestamp order |
-| `src/energia/chat/tools.py` | `ToolRegistry` — exact implementation from KICKOFF.md |
-| `src/energia/chat/orchestrator.py` | Anthropic SDK tool loop; HR-7 token counter + budget halt at 200 000 tokens |
+| `src/energia/chat/state.py` | `ChatState` TypedDict with `messages` (LangGraph `add_messages` reducer), `user_id`, `conversation_id`, `tokens_used` |
+| `src/energia/chat/graph.py` | `build_graph()` + `GRAPH` singleton — `StateGraph` with `agent` and `tools` nodes, conditional routing |
+| `src/energia/chat/nodes.py` | `agent_node` (bound `ChatAnthropic`), `tool_node` (`ToolNode`), `route_after_agent` |
+| `src/energia/chat/tools/__init__.py` | `ALL_TOOLS` list; Sprint 0 contains only `hello_world_tool` |
+| `src/energia/chat/tools/hello.py` | Sprint 0 stub `@tool` (`hello_world_tool`); removed in Sprint 1 |
 | `src/energia/chat/prompts.py` | `SYSTEM_PROMPT` PT-BR; HR-5 "nunca inventa números" rule — PROTECTED PATH |
+| `src/energia/chat/audit.py` | `DuckDBAuditCallback` — HR-5 audit trail via LangChain callbacks; writes every tool_call to DuckDB |
+| `src/energia/chat/budget.py` | `TokenBudgetCallback` + `TokenBudgetExceeded` — HR-7 cost guardrail at `SESSION_TOKEN_BUDGET` |
 | `src/energia/chat/memory.py` | `save_message()`, `load_history()` → DuckDB `conversations` / `messages` tables |
 | `docs/adr/ADR-001-streamlit-only-v1.md` … `ADR-005-pvlib-with-nasa-power.md` | Five ADRs from README |
 
@@ -380,27 +391,27 @@ These must be resolved by Daniel before code in the affected sprint begins. Each
 
 ---
 
-**Q1 — `estimate_device_cost` sprint placement**
+**Q1 — `estimate_device_cost` sprint placement** — RESOLVED
 
-Context: The cost formula from `calculadora.py:41–43` is valid domain logic and easy to implement, but it needs a tariff value — which comes from `get_tariff()` in Sprint 2.
+`estimate_device_cost()` lands in Sprint 2 alongside `get_tariff()` (Option B). The Sprint 1 chatbot does not expose a device-cost tool; users asking "quanto custa minha geladeira?" in Sprint 1 are told the capability arrives in Sprint 2. Rationale: HR-5 discipline — a stale tariff yields misleading R$/month numbers and erodes user trust faster than a missing feature. The function is implemented in `bill/analysis.py` in Sprint 2 once live tariff data is wired in.
+
+Historical options:
 
 - **Option A (Sprint 1):** Implement `estimate_device_cost()` in Sprint 1 using the `data/tariff_fallback_b1.csv` offline tariff. Users get the feature earlier; the tariff value may be stale until Sprint 2 wires in the live API.
-- **Option B (Sprint 2):** Defer `estimate_device_cost()` to Sprint 2, placing it in `bill/analysis.py` only after `get_tariff()` is live. Avoids stale tariff values; delays the capability by one sprint.
-- **Option C (Sprint 1, internal only):** Implement in Sprint 1 as a non-tool utility — callable by the orchestrator but not registered with `ToolRegistry`. Upgrade to a registered tool in Sprint 2 when live tariffs are available.
-
-Trade-offs: A ships value sooner at the cost of temporary staleness. B ensures data freshness. C is a clean separation but adds a refactor step in Sprint 2.
+- **Option B (Sprint 2):** Defer `estimate_device_cost()` to Sprint 2, placing it in `bill/analysis.py` only after `get_tariff()` is live. Avoids stale tariff values; delays the capability by one sprint. **← chosen**
+- **Option C (Sprint 1, internal only):** Implement in Sprint 1 as a non-tool utility — callable internally but not exposed as a registered `@tool` in `chat/tools/`. Upgrade to a registered LangChain tool in Sprint 2 when live tariffs are available.
 
 ---
 
-**Q2 — `app_energia/` directory fate after migration**
+**Q2 — `app_energia/` directory fate after migration** — RESOLVED
 
-Context: Once all files are moved or deleted, `app_energia/` will be empty (or contain only `__pycache__/`). Three options:
+Delete `app_energia/` entirely once the migration commit lands (Option A). Both root `requirements.txt` and `app_energia/requirements.txt` are also dropped (replaced by `pyproject.toml`). Git history is the only breadcrumb retained — no `README.md` placeholder, no shim. Rationale: single source of truth for "where Python lives" reduces ambiguity for any future contributor or AI agent reading the repo. `git log -- app_energia/` will always recover the content.
 
-- **Option A:** Delete the directory entirely once the migration commit lands. Clean; no ambiguity about which directory runs the app.
+Historical options:
+
+- **Option A:** Delete the directory entirely once the migration commit lands. Clean; no ambiguity about which directory runs the app. **← chosen**
 - **Option B:** Leave `app_energia/` with a single `README.md`: "Superseded by `src/energia/`. See MIGRATION.md." Provides a breadcrumb for anyone with an old bookmark or shell alias.
 - **Option C:** Keep `app_energia/app.py` as a one-line shim: `from energia.ui.streamlit_app import main; main()`. Maintains compatibility with anyone running `streamlit run app_energia/app.py`; creates a permanent debt item.
-
-Trade-offs: A is cleanest. B is polite to old users. C is a maintenance liability.
 
 ---
 
@@ -412,24 +423,26 @@ Trade-offs: A is cleanest. B is polite to old users. C is a maintenance liabilit
 
 ---
 
-**Q4 — CRISP_DM notebook rename strategy**
+**Q4 — CRISP_DM notebook rename strategy** — RESOLVED
 
-Context: `app_energia/CRISP_DM_&_TDSP.ipynb` — the `&` character in the filename is problematic in some shells and git operations.
+Rename to `notebooks/CRISP_DM_and_TDSP.ipynb` (Option B). The `&` character is shell-unsafe; replacing it with `_and_` is clearer than dropping it entirely. The notebook stays under `notebooks/` as scratch reference, never imported by `src/`. Dropping the file (Option C) was rejected — minimal storage cost, and the CRISP-DM / TDSP methodology context has educational value even if the original data references are stale.
+
+Historical options:
 
 - **Option A:** Rename to `notebooks/CRISP_DM_TDSP.ipynb` on move. Clean filename; loses the exact original name.
-- **Option B:** Rename to `notebooks/CRISP_DM_and_TDSP.ipynb`. Readable; preserves intent.
+- **Option B:** Rename to `notebooks/CRISP_DM_and_TDSP.ipynb`. Readable; preserves intent. **← chosen**
 - **Option C:** Omit from `notebooks/` entirely. The document's content has already been superseded by `CLAUDE.md`, `KICKOFF.md`, and `PLAN.md`.
-
-Trade-offs: A or B preserve the context cheaply. C is defensible since the content is stale (references NREL data as primary source).
 
 ---
 
-**Q5 — Large NREL CSV files in git history**
+**Q5 — Large NREL CSV files in git history** — RESOLVED (in two parts)
 
-Context: The three NREL CSVs total ~158 MB and are in the git commit history. Adding them to `.gitignore` and deleting from the working tree stops growth, but the history bloat remains, increasing clone times.
+For this migration commit: Option A. The CSVs and other large legacy data files are added to `.gitignore` and removed from the working tree. History bloat (~158 MB) is acknowledged but not addressed in this commit. Sprint 0 proceeds with a slightly-bloated clone.
 
-- **Option A (gitignore only):** Delete from working tree; add to `.gitignore`. Simple; history stays; ~158 MB in every future clone.
-- **Option B (`git filter-repo`):** Expunge the three files from all history. Clean clone; history is rewritten; requires `git push --force` to `origin/main` (destructive — requires Daniel to explicitly approve).
+For history cleanup: deferred as a separate task. Daniel will run `git filter-repo` manually from a fresh clone (HR-1 — no agent runs history-rewriting commands), then force-push. This is tracked in `docs/tech-debt.md` and scheduled after Task 0.2 (this migration plan) is merged and Task 0.3 (scaffolding) is underway, so the cleanup happens with the repo in a known-stable state.
+
+Historical options:
+
+- **Option A (gitignore only):** Delete from working tree; add to `.gitignore`. Simple; history stays; ~158 MB in every future clone. **← chosen for the migration commit**
+- **Option B (`git filter-repo`):** Expunge the three files from all history. Clean clone; history is rewritten; requires `git push --force` to `origin/main` (destructive — requires Daniel to explicitly approve). **← chosen as a separate follow-up task**
 - **Option C (new orphan branch):** Start a clean-history branch from the current tree, set as main. Nuclear; loses all commit messages and context.
-
-Trade-offs: A is safe and reversible. B is permanent, requires force-push, but yields a clean repo. C is disproportionate. B is the right long-term call if Daniel approves the force-push; otherwise A is the default.
