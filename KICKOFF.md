@@ -42,10 +42,16 @@ residential-energy/
 │   │   └── catalog.py          # Common panels/inverters in BR
 │   │
 │   ├── chat/
-│   │   ├── orchestrator.py     # Anthropic SDK + tool loop
-│   │   ├── tools.py            # Registry decorator
-│   │   ├── prompts.py          # System prompt in PT-BR
-│   │   └── memory.py           # Conversation history persistence
+│   │   ├── state.py            # ChatState TypedDict (LangGraph state)
+│   │   ├── graph.py            # StateGraph builder + compiled GRAPH singleton
+│   │   ├── nodes.py            # agent_node, tool_node, conditional routing
+│   │   ├── tools/              # LangChain @tool wrappers around domain functions
+│   │   │   ├── __init__.py     # ALL_TOOLS list
+│   │   │   └── hello.py        # Sprint 0 stub tool
+│   │   ├── prompts.py          # System prompt in PT-BR (PROTECTED)
+│   │   ├── audit.py            # DuckDBAuditCallback — HR-5 audit trail
+│   │   ├── budget.py           # TokenBudgetCallback — HR-7 cost guardrail
+│   │   └── memory.py           # Conversation persistence in DuckDB
 │   │
 │   └── ui/
 │       └── streamlit_app.py    # st.chat_message + sidebar
@@ -59,67 +65,23 @@ residential-energy/
 
 ---
 
-## Tool-registry pattern
+## LangChain tool pattern
 
-Each capability is a typed function. The LLM picks which tools to call.
-
-```python
-# src/energia/chat/tools.py
-from pydantic import BaseModel
-from typing import Callable, Any
-
-class ToolRegistry:
-    def __init__(self):
-        self._tools: dict[str, dict] = {}
-
-    def register(self, name: str, description: str, input_model: type[BaseModel]):
-        def decorator(fn: Callable):
-            self._tools[name] = {
-                "schema": {
-                    "name": name,
-                    "description": description,
-                    "input_schema": input_model.model_json_schema(),
-                },
-                "model": input_model,
-                "fn": fn,
-            }
-            return fn
-        return decorator
-
-    def schemas(self) -> list[dict]:
-        return [t["schema"] for t in self._tools.values()]
-
-    def call(self, name: str, raw: dict) -> Any:
-        t = self._tools[name]
-        return t["fn"](t["model"].model_validate(raw))
-
-registry = ToolRegistry()
-```
-
-Example registration alongside an implementation:
+Every chatbot capability is a pure Python function in a domain module, then wrapped as a LangChain tool in `chat/tools/<domain>.py`. The wrapper layer is thin — it exists so domain logic stays testable without any LLM dependency, and so the LangGraph agent node can call `bind_tools(ALL_TOOLS)` with a single import.
 
 ```python
-# src/energia/solar/sizing.py
+# src/energia/solar/sizing.py  — pure domain function, no LLM imports
 from pydantic import BaseModel, Field
-from energia.chat.tools import registry
 
 class SolarSizingInput(BaseModel):
     lat: float = Field(description="Latitude in decimal degrees")
     lon: float = Field(description="Longitude in decimal degrees")
-    monthly_kwh: float = Field(description="Average monthly consumption (kWh)")
+    monthly_kwh: float = Field(description="Average monthly consumption in kWh")
     roof_orientation: str = Field(description="N, NE, E, SE, S, SW, W, or NW")
     roof_tilt_deg: float = Field(default=15.0, description="Roof tilt in degrees")
 
-@registry.register(
-    name="estimate_solar_system",
-    description=(
-        "Estimates recommended kWp, expected monthly generation, and rough cost "
-        "for a residential PV system at the given location. Call when user asks "
-        "whether solar makes sense, what size they need, or for payback estimates."
-    ),
-    input_model=SolarSizingInput,
-)
 def estimate_solar_system(inp: SolarSizingInput) -> dict:
+    """Estimates recommended kWp, monthly generation, and rough cost."""
     # 1. pull weather: pvlib.iotools.get_pvgis_tmy(inp.lat, inp.lon)
     # 2. build ModelChain with assumed module + inverter from catalog
     # 3. simulate annual AC energy
@@ -134,64 +96,144 @@ def estimate_solar_system(inp: SolarSizingInput) -> dict:
     }
 ```
 
----
+```python
+# src/energia/chat/tools/solar.py  — LangChain wrapper, no math
+from langchain_core.tools import tool
+from energia.solar.sizing import SolarSizingInput, estimate_solar_system as _impl
 
-## Orchestrator
+@tool("estimate_solar_system", args_schema=SolarSizingInput)
+def estimate_solar_system_tool(**kwargs) -> dict:
+    """Estimates recommended kWp, expected monthly generation, and rough cost
+    for a residential PV system at the given location. Call when the user
+    asks whether solar makes sense, what size they need, or for payback
+    estimates."""
+    return _impl(SolarSizingInput(**kwargs))
+```
 
 ```python
-# src/energia/chat/orchestrator.py
-import json
-from anthropic import Anthropic
-from energia.chat.tools import registry
-from energia.chat.prompts import SYSTEM_PROMPT
+# src/energia/chat/tools/__init__.py
+from energia.chat.tools.hello import hello_world_tool
+# Sprint 1 adds: parse_bill_image_tool, compare_bill_periods_tool, ...
+# Sprint 2 adds: current_bandeira_tool, simulate_tarifa_branca_tool, ...
+# Sprint 3 adds: estimate_solar_system_tool, solar_payback_tool, ...
 
-client = Anthropic()  # picks up ANTHROPIC_API_KEY from env
-MODEL = "claude-sonnet-4-6"  # good tool-use, reasonable cost
-
-def chat(messages: list[dict]) -> tuple[str, list[dict]]:
-    """Run one user turn through the model, executing tool calls until end_turn."""
-    while True:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            tools=registry.schemas(),
-            messages=messages,
-        )
-
-        if response.stop_reason == "end_turn":
-            text = "".join(b.text for b in response.content if b.type == "text")
-            return text, messages
-
-        if response.stop_reason == "tool_use":
-            # Echo assistant turn back into history
-            messages.append({"role": "assistant", "content": response.content})
-
-            # Run every tool the model asked for
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    try:
-                        result = registry.call(block.name, block.input)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": json.dumps(result, default=str),
-                        })
-                    except Exception as e:
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": f"Error: {e}",
-                            "is_error": True,
-                        })
-
-            messages.append({"role": "user", "content": tool_results})
-            continue
-
-        # Other stop reasons (max_tokens, etc.) — bail
-        return "(model did not finish)", messages
+ALL_TOOLS = [
+    hello_world_tool,
+]
 ```
+
+**Why this split:** the domain function (`estimate_solar_system`) is unit-testable without any LangChain or Anthropic imports. The tool wrapper is tested separately for schema and routing. This keeps Pydantic validation, docstring-as-tool-description, and dependency surface area all clean.
+
+---
+
+## LangGraph orchestrator
+
+The chatbot is a `StateGraph` with two nodes — `agent` (LLM call with tools bound) and `tools` (LangGraph's prebuilt `ToolNode`) — and one conditional edge that decides whether to keep looping or end the turn. HR-5 (no invented numbers) and HR-7 (token budget) are enforced via callbacks.
+
+```python
+# src/energia/chat/state.py
+from typing import TypedDict, Annotated
+from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
+
+class ChatState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+    user_id: str
+    conversation_id: str
+    tokens_used: int
+```
+
+```python
+# src/energia/chat/nodes.py
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import SystemMessage
+from langgraph.prebuilt import ToolNode
+
+from energia.chat.state import ChatState
+from energia.chat.tools import ALL_TOOLS
+from energia.chat.prompts import SYSTEM_PROMPT
+from energia.config import settings
+
+_llm = ChatAnthropic(model=settings.anthropic_model, max_tokens=4096)
+_llm_with_tools = _llm.bind_tools(ALL_TOOLS)
+
+def agent_node(state: ChatState) -> dict:
+    """Call the LLM with the running message history."""
+    messages = state["messages"]
+    if not messages or not isinstance(messages[0], SystemMessage):
+        messages = [SystemMessage(content=SYSTEM_PROMPT), *messages]
+    response = _llm_with_tools.invoke(messages)
+    usage = response.usage_metadata or {}
+    return {
+        "messages": [response],
+        "tokens_used": state["tokens_used"]
+            + usage.get("input_tokens", 0)
+            + usage.get("output_tokens", 0),
+    }
+
+tool_node = ToolNode(ALL_TOOLS)
+
+def route_after_agent(state: ChatState) -> str:
+    """Decide whether the agent's last turn requested tool calls."""
+    last = state["messages"][-1]
+    return "tools" if getattr(last, "tool_calls", None) else "end"
+```
+
+```python
+# src/energia/chat/graph.py
+from langgraph.graph import StateGraph, START, END
+
+from energia.chat.state import ChatState
+from energia.chat.nodes import agent_node, tool_node, route_after_agent
+
+def build_graph():
+    g = StateGraph(ChatState)
+    g.add_node("agent", agent_node)
+    g.add_node("tools", tool_node)
+    g.add_edge(START, "agent")
+    g.add_conditional_edges(
+        "agent",
+        route_after_agent,
+        {"tools": "tools", "end": END},
+    )
+    g.add_edge("tools", "agent")
+    return g.compile()
+
+GRAPH = build_graph()
+```
+
+Invocation from Streamlit:
+
+```python
+# src/energia/ui/streamlit_app.py (excerpt)
+from langchain_core.messages import HumanMessage
+from energia.chat.graph import GRAPH
+from energia.chat.audit import DuckDBAuditCallback
+from energia.chat.budget import TokenBudgetCallback, TokenBudgetExceeded
+
+config = {"callbacks": [
+    DuckDBAuditCallback(conversation_id=cid),
+    TokenBudgetCallback(),
+]}
+
+try:
+    result = GRAPH.invoke(
+        {
+            "messages": [HumanMessage(content=user_input)],
+            "user_id": user_id,
+            "conversation_id": cid,
+            "tokens_used": 0,
+        },
+        config=config,
+    )
+    st.chat_message("assistant").write(result["messages"][-1].content)
+except TokenBudgetExceeded:
+    st.error("Esta conversa atingiu o limite de tokens. Comece uma nova sessão.")
+```
+
+**Why LangGraph and not direct SDK:** the state-machine shape pays off in Sprint 1 when the bill ingestion flow becomes multi-step ("parsed but uncertain → asking user → confirmed → ready for analysis") and in Sprint 3 when solar feasibility wants to gather inputs incrementally. ADR-002 covers the trade-offs.
+
+**Why no LangChain core:** we avoid `langchain` (the meta-package), LCEL chains, prompt templates, and agents. They duplicate things we have clean for in `prompts.py` and direct LangGraph nodes. We use only `langgraph`, `langchain-core`, and `langchain-anthropic`.
 
 ---
 
@@ -222,6 +264,8 @@ tarifária, histórico de contas, modalidade tarifária atual.
 ---
 
 ## Initial tool catalog (v1)
+
+Each tool below is registered via `@tool` from `langchain-core` and re-exported from `src/energia/chat/tools/__init__.py` in the `ALL_TOOLS` list. Domain logic lives in non-`chat/` modules and is imported by the wrappers — see the `solar.sizing` / `chat.tools.solar` split above.
 
 | Tool name | Module | What it does |
 |---|---|---|

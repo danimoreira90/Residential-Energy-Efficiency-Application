@@ -173,6 +173,9 @@ docs/sessions/.gitkeep
 ```toml
 [project]
 dependencies = [
+  "langgraph>=0.2",
+  "langchain-core>=0.3",
+  "langchain-anthropic>=0.2",
   "anthropic>=0.40",
   "pydantic>=2.7",
   "pydantic-settings>=2.4",
@@ -194,6 +197,8 @@ dev = [
   "pyright>=1.1",
 ]
 ```
+
+**Explicitly NOT included:** `langchain` (the meta-package), `langchain-community`, `langsmith`. Adopting any of these later requires a new ADR.
 
 #### Verification
 
@@ -328,7 +333,7 @@ print(con.execute(\"SELECT table_name FROM information_schema.tables WHERE table
 
 ---
 
-### Task 0.5 — Tool registry + orchestrator + stub tool + Streamlit shell
+### Task 0.5 — LangGraph chat spine + stub tool + Streamlit shell
 
 **Owner:** ai-ml-engineer
 **Depends on:** Task 0.4
@@ -336,36 +341,50 @@ print(con.execute(\"SELECT table_name FROM information_schema.tables WHERE table
 
 #### Goal
 
-End-to-end chatbot spine: user types in Streamlit → orchestrator runs tool-use loop → `hello_world` tool executes → response renders. Token tracking and HR-7 budget enforcement working from day one. After this task, the chatbot is real (just not useful yet).
+End-to-end chatbot spine using LangGraph: user types in Streamlit → `GRAPH.invoke` runs the agent/tools loop → `hello_world` tool executes → response renders. HR-5 audit trail (every tool call logged to DuckDB via `DuckDBAuditCallback`) and HR-7 token budget (enforced via `TokenBudgetCallback`) are wired from day one.
 
 #### Files to create
 
 ```
-src/energia/chat/tools.py            # ToolRegistry exactly as in KICKOFF.md
-src/energia/chat/prompts.py          # System prompt in PT-BR (PROTECTED — HR-4)
-src/energia/chat/orchestrator.py     # Anthropic SDK tool loop + token tracking
-src/energia/chat/memory.py           # Persist/load conversation from DuckDB
-src/energia/ui/streamlit_app.py      # st.chat_message + session-id minting
-tests/chat/test_tools.py             # Registry registration + dispatch
-tests/chat/test_orchestrator.py      # Mocked Anthropic responses
+src/energia/chat/state.py             # ChatState TypedDict
+src/energia/chat/nodes.py             # agent_node, tool_node, route_after_agent
+src/energia/chat/graph.py             # build_graph() + GRAPH singleton
+src/energia/chat/tools/__init__.py    # ALL_TOOLS list
+src/energia/chat/tools/hello.py       # Sprint 0 stub @tool
+src/energia/chat/prompts.py           # System prompt in PT-BR (PROTECTED — HR-4)
+src/energia/chat/audit.py             # DuckDBAuditCallback (HR-5)
+src/energia/chat/budget.py            # TokenBudgetCallback + TokenBudgetExceeded (HR-7)
+src/energia/chat/memory.py            # Conversation persistence helpers
+src/energia/ui/streamlit_app.py       # st.chat_message + session-id minting
+tests/chat/test_state.py              # State updates compose correctly via add_messages
+tests/chat/test_tools.py              # @tool schema + invocation
+tests/chat/test_graph.py              # Mocked ChatAnthropic, full loop
+tests/chat/test_audit.py              # Callback writes to tool_calls table
+tests/chat/test_budget.py             # Callback raises TokenBudgetExceeded at threshold
 ```
 
 #### Stub tool
 
 ```python
-# src/energia/chat/tools.py — at end of file, after registry definition
-from pydantic import BaseModel
+# src/energia/chat/tools/hello.py
+from langchain_core.tools import tool
+from pydantic import BaseModel, Field
 
 class HelloInput(BaseModel):
-    name: str
+    name: str = Field(description="Nome para cumprimentar")
 
-@registry.register(
-    name="hello_world",
-    description="Returns a friendly greeting. Use only when the user explicitly says hello — this is a demo tool that will be removed in Sprint 1.",
-    input_model=HelloInput,
-)
-def hello_world(inp: HelloInput) -> dict:
-    return {"greeting": f"Olá, {inp.name}!", "tool_version": "v0.0-stub"}
+@tool("hello_world", args_schema=HelloInput)
+def hello_world_tool(name: str) -> dict:
+    """Retorna um cumprimento amigável. Ferramenta de demonstração — será
+    removida no Sprint 1 quando ferramentas reais de análise de conta entrarem."""
+    return {"greeting": f"Olá, {name}!", "tool_version": "v0.0-stub"}
+```
+
+```python
+# src/energia/chat/tools/__init__.py
+from energia.chat.tools.hello import hello_world_tool
+
+ALL_TOOLS = [hello_world_tool]
 ```
 
 #### System prompt (initial — full v1 prompt arrives in Sprint 1)
@@ -386,31 +405,45 @@ está sendo construído e oferece poucas funcionalidades.
 """
 ```
 
-#### Tests (RED first)
+#### Tests (RED first — must fail before impl)
 
 ```python
-# tests/chat/test_orchestrator.py
-def test_orchestrator_runs_single_turn_with_no_tools(mocker):
-    """Model returns end_turn directly — orchestrator returns the text."""
+# tests/chat/test_graph.py
+def test_graph_runs_single_turn_with_no_tool_calls(mocker):
+    """Mocked LLM returns plain AIMessage — graph ends after agent node."""
 
-def test_orchestrator_runs_tool_use_loop(mocker):
-    """Model requests hello_world tool — orchestrator executes and feeds back."""
+def test_graph_runs_tool_use_loop(mocker):
+    """Mocked LLM requests hello_world; graph routes through tool_node then back."""
 
-def test_orchestrator_enforces_token_budget(mocker):
-    """Cumulative tokens > SESSION_TOKEN_BUDGET — orchestrator halts gracefully."""
+def test_graph_accumulates_tokens_across_turns(mocker):
+    """Each agent_node call adds usage_metadata to state.tokens_used."""
 
-def test_orchestrator_logs_every_tool_call(mocker, tmp_db):
-    """Every tool_use block is recorded in tool_calls table."""
+def test_graph_handles_tool_error_gracefully(mocker):
+    """Tool raises — ToolNode returns ToolMessage with error; agent narrates."""
 
-def test_orchestrator_handles_tool_error(mocker):
-    """Tool raises — orchestrator returns is_error tool_result and continues."""
+# tests/chat/test_audit.py
+def test_audit_callback_writes_tool_call_to_duckdb(tmp_db, mocker):
+    """on_tool_end inserts a row in tool_calls with name, input, output."""
+
+def test_audit_callback_logs_tool_error(tmp_db, mocker):
+    """on_tool_error inserts a row with error column populated."""
+
+def test_audit_callback_does_not_log_pii(tmp_db, mocker, caplog):
+    """HR-6 guard: tool_calls.input_json must not contain raw image bytes."""
+
+# tests/chat/test_budget.py
+def test_budget_callback_raises_at_threshold(mocker):
+    """on_llm_end with cumulative tokens > budget → TokenBudgetExceeded."""
+
+def test_budget_callback_warns_at_50_percent(mocker, caplog):
+    """on_llm_end at 50% of budget → WARNING log."""
 ```
 
 #### Verification
 
 ```bash
 uv run pytest tests/chat/ -q
-# Expected: 8 passed (3 in test_tools.py, 5 in test_orchestrator.py)
+# Expected: ≥ 11 passed (state, tools, graph×4, audit×3, budget×2)
 
 uv run pyright
 # Expected: 0 errors
@@ -420,21 +453,25 @@ uv run streamlit run src/energia/ui/streamlit_app.py
 # Open http://localhost:8501
 # Type "Oi, me chama de Daniel"
 # Expected: chatbot responds in PT-BR, calls hello_world, narrates result
-# Check data/energia.duckdb:
+
+# Confirm HR-5 audit and HR-7 token accounting
 uv run python -c "
 import duckdb
 con = duckdb.connect('data/energia.duckdb')
 print('Conversations:', con.execute('SELECT COUNT(*) FROM conversations').fetchone()[0])
 print('Tool calls:', con.execute(\"SELECT tool_name, COUNT(*) FROM tool_calls GROUP BY tool_name\").fetchall())
+print('Tokens:', con.execute(\"SELECT total_tokens_in + total_tokens_out FROM conversations ORDER BY started_at DESC LIMIT 1\").fetchone())
 "
-# Expected: at least 1 conversation, at least 1 hello_world tool call
+# Expected: ≥ 1 conversation, ≥ 1 hello_world tool call, non-zero token count
 ```
 
 #### Anti-cheat
 
-- Mock the Anthropic SDK in tests; never hit the real API in CI (cost + flakiness).
-- Do NOT short-circuit the tool-use loop in tests. Test the actual loop logic.
-- The token budget check must be tested against a fake response with non-zero usage values, not skipped.
+- Mock `ChatAnthropic` and `_llm_with_tools.invoke` in tests; do NOT hit the real API in CI (cost + flakiness). Evals (Task 0.6) are the one place real API calls run, gated behind `ANTHROPIC_API_KEY`.
+- Do NOT short-circuit the graph in tests. Test the actual conditional-edge routing.
+- The `TokenBudgetCallback` test must verify against fake `usage_metadata` with non-zero counts — `mocker.patch` that returns `{"input_tokens": 0}` is not a real test of the threshold.
+- `test_audit_callback_does_not_log_pii` is non-negotiable. If your callback's `input_json` serialization includes raw image bytes, fix the callback (truncate / hash / omit), not the test.
+- LangGraph 0.2+ has `langgraph.checkpoint.memory.MemorySaver` for in-process state. v1 uses this. Do NOT scaffold `SqliteSaver` or any persistent checkpointer — that's a Sprint 2 question if it comes up at all.
 
 ---
 
