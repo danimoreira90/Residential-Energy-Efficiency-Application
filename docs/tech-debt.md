@@ -6,6 +6,25 @@ what, why introduced, and resolution target.
 Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
+## TD-006: Task 0.4 migration tests over-specified for migration count
+
+**What.** `tests/db/test_migrations.py` had two assertions hardcoded for
+exactly one applied migration (`assert count == 1`, `assert len(rows) == 1`).
+When Task 1.1 added a second migration, both tests broke despite the
+runner working correctly. Fixed in 2026-05-11 with name-based lookup and
+file-count comparison.
+
+**Why introduced.** The Task 0.4 tests were written when only one
+migration existed and didn't anticipate the natural growth of the
+migrations folder. The fixes generalise the assertions to "all migrations
+applied, no duplicates" and "this specific migration name maps to its
+file's SHA-256" — both preserve the test intent while supporting any
+number of migrations.
+
+**Resolution target.** Resolved by edits to `test_migrate_is_idempotent`
+and `test_migrate_records_applied_migration` in this commit. HR-4 process
+followed correctly — Claude Code flagged before editing, Daniel approved.
+
 ---
 
 ## TD-005: hello_no_name example removed from capability eval

@@ -52,22 +52,21 @@ def test_migrate_is_idempotent(env: dict[str, str]) -> None:
     count: int = con.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]  # type: ignore[index]
     con.close()
 
-    assert count == 1
+    n_migrations = len(sorted(Path(env["migrations_dir"]).glob("*.sql")))
+    assert count == n_migrations
 
 
 def test_migrate_records_applied_migration(env: dict[str, str]) -> None:
-    """schema_migrations has exactly one row after first call, with correct sha256."""
+    """schema_migrations records the initial migration with correct sha256."""
     migrate(db_path=env["db_path"], migrations_dir=env["migrations_dir"])
 
     con = duckdb.connect(env["db_path"])
     rows = con.execute("SELECT name, sha256 FROM schema_migrations").fetchall()
     con.close()
 
-    assert len(rows) == 1
-    name: str = str(rows[0][0])
-    stored_sha: str = str(rows[0][1])
-
-    assert name == "20260510_0001_initial_schema"
+    migration_map = {str(r[0]): str(r[1]) for r in rows}
+    assert "20260510_0001_initial_schema" in migration_map
+    stored_sha: str = migration_map["20260510_0001_initial_schema"]
 
     sql_file = Path(env["migrations_dir"]) / "20260510_0001_initial_schema.sql"
     expected_sha = hashlib.sha256(sql_file.read_bytes()).hexdigest()
