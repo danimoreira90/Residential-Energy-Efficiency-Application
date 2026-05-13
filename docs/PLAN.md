@@ -735,7 +735,7 @@ Implement `Bill` and `BillComposition` exactly per the SDD spec above. Add tests
 
 ```bash
 uv run pytest tests/test_models.py::TestBill -q
-# Expected: 8 passed (one per validation rule)
+# Expected: 9 passed (one per validation rule)
 ```
 
 ---
