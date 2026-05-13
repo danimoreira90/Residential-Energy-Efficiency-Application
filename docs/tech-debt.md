@@ -6,6 +6,31 @@ what, why introduced, and resolution target.
 Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
+## TD-007: ruff E402/I001 suppression for load_dotenv files
+
+**What.** `ruff.toml` adds per-file-ignores for `src/energia/evals/run.py`
+and `src/energia/ui/streamlit_app.py`, suppressing E402 (module-level
+import not at top of file) and I001 (import block un-sorted) in those
+two files only. The 12 errors were uncovered at the start of Sprint 1
+during Task 1.2 verification; the Sprint 0 hand-off had claimed "ruff
+clean" but those errors were present at the time.
+
+**Why introduced.** Both files call `load_dotenv()` between imports
+because downstream module-level instantiation reads `ANTHROPIC_API_KEY`
+at import time — specifically, `from energia.chat.graph import GRAPH`
+constructs a `ChatAnthropic` instance at module load. Moving
+`load_dotenv()` below the imports would break startup with a missing
+API key error. The pattern is intentional and limited to these two
+entry-point files; per-file suppression keeps the entry points readable
+without scattering `# noqa: E402` across every import line.
+
+**Resolution target.** Sprint 2 or later — refactor `GRAPH` to a lazy
+factory (`make_graph()` called at app startup) so module-level
+instantiation no longer depends on environment state. Once that lands,
+`load_dotenv()` can move below the imports and these suppressions come off.
+
+---
+
 ## TD-006: Task 0.4 migration tests over-specified for migration count
 
 **What.** `tests/db/test_migrations.py` had two assertions hardcoded for
