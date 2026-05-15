@@ -13,11 +13,12 @@ Exit codes
 """
 from __future__ import annotations
 
-from dotenv import load_dotenv
-load_dotenv()
-
 import argparse
 import sys
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def _run_capability(name: str) -> int:

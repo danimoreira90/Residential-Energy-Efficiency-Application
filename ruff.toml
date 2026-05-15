@@ -13,8 +13,3 @@ ignore = ["N818"]  # TokenBudgetExceeded name matches PLAN.md spec
 [lint.isort]
 known-first-party = ["energia"]
 
-[lint.per-file-ignores]
-# See docs/tech-debt.md TD-007 — load_dotenv() must precede module-level
-# imports that read ANTHROPIC_API_KEY at import time (e.g. chat.graph.GRAPH).
-"src/energia/evals/run.py" = ["E402", "I001"]
-"src/energia/ui/streamlit_app.py" = ["E402", "I001"]

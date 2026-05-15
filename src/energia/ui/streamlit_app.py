@@ -1,11 +1,9 @@
 """Streamlit chat UI — entry point for `uv run streamlit run src/energia/ui/streamlit_app.py`."""
-from dotenv import load_dotenv
-load_dotenv()
-
 import uuid
 from typing import Any
 
 import streamlit as st
+from dotenv import load_dotenv
 
 from energia.chat.audit import DuckDBAuditCallback
 from energia.chat.budget import TokenBudgetCallback, TokenBudgetExceeded
@@ -17,6 +15,8 @@ from energia.chat.memory import (
     update_token_totals,
 )
 from energia.db import migrate
+
+load_dotenv()
 
 # Apply any pending migrations on every startup — idempotent and fast.
 migrate()

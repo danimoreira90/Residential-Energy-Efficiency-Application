@@ -10,17 +10,29 @@ from energia.chat.state import ChatState
 from energia.chat.tools import ALL_TOOLS
 from energia.config import settings
 
-_llm = ChatAnthropic(model_name=settings.anthropic_model, max_tokens_to_sample=4096)  # type: ignore[call-arg]
-_llm_with_tools = _llm.bind_tools(ALL_TOOLS)
+# Lazily initialised on first agent_node call — not at import time.
+# This prevents ANTHROPIC_API_KEY from being required before load_dotenv()
+# has run (CC-01 / AF-01).  Tests patch _llm_with_tools directly; the getter
+# returns the patched value unchanged when it is non-None.
+_llm: ChatAnthropic | None = None
+_llm_with_tools: Any = None
 
 tool_node = ToolNode(ALL_TOOLS, handle_tool_errors=True)
+
+
+def _get_llm_with_tools() -> Any:
+    global _llm, _llm_with_tools
+    if _llm_with_tools is None:
+        _llm = ChatAnthropic(model_name=settings.anthropic_model, max_tokens_to_sample=4096)  # type: ignore[call-arg]
+        _llm_with_tools = _llm.bind_tools(ALL_TOOLS)
+    return _llm_with_tools
 
 
 def agent_node(state: ChatState) -> dict[str, Any]:
     messages = list(state["messages"])
     if not messages or not isinstance(messages[0], SystemMessage):
         messages = [SystemMessage(content=SYSTEM_PROMPT), *messages]
-    response = _llm_with_tools.invoke(messages)
+    response = _get_llm_with_tools().invoke(messages)
     usage_delta = 0
     if isinstance(response, AIMessage) and response.usage_metadata is not None:  # type: ignore[reportUnnecessaryIsInstance]
         usage_delta = (
