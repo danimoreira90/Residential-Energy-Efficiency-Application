@@ -33,13 +33,16 @@ def agent_node(state: ChatState) -> dict[str, Any]:
     if not messages or not isinstance(messages[0], SystemMessage):
         messages = [SystemMessage(content=SYSTEM_PROMPT), *messages]
     response = _get_llm_with_tools().invoke(messages)
+    input_delta = 0
     usage_delta = 0
     if isinstance(response, AIMessage) and response.usage_metadata is not None:  # type: ignore[reportUnnecessaryIsInstance]
-        usage_delta = (
-            response.usage_metadata["input_tokens"]
-            + response.usage_metadata["output_tokens"]
-        )
-    return {"messages": [response], "tokens_used": state["tokens_used"] + usage_delta}
+        input_delta = response.usage_metadata["input_tokens"]
+        usage_delta = input_delta + response.usage_metadata["output_tokens"]
+    return {
+        "messages": [response],
+        "tokens_used": state["tokens_used"] + usage_delta,
+        "tokens_in": state.get("tokens_in", 0) + input_delta,
+    }
 
 
 def route_after_agent(state: ChatState) -> str:

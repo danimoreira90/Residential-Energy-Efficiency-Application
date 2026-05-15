@@ -10,6 +10,8 @@ Usage:
 import hashlib
 import logging
 import sys
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 
 import duckdb
@@ -23,6 +25,16 @@ _MIGRATIONS_DEFAULT = Path(__file__).parent.parent.parent / "migrations"
 
 class MigrationIntegrityError(Exception):
     """Raised when a previously-applied migration file has been modified (HR-3)."""
+
+
+@contextmanager
+def connection(path: str | None = None) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+    """Context manager that opens a DuckDB connection and closes it on exit."""
+    con = connect(path)
+    try:
+        yield con
+    finally:
+        con.close()
 
 
 def connect(path: str | None = None) -> duckdb.DuckDBPyConnection:

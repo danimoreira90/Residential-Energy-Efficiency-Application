@@ -73,18 +73,21 @@ if user_input := st.chat_input("Olá! Como posso ajudar com sua conta de energia
         "user_id": str(st.session_state["user_id"]),
         "conversation_id": conversation_id,
         "tokens_used": 0,
+        "tokens_in": 0,
     }
 
     try:
         result = GRAPH.invoke(graph_state, config={"callbacks": [audit_cb, budget_cb]})
         ai_content: str = str(result["messages"][-1].content)
         tokens_used: int = int(result["tokens_used"])
+        tokens_in: int = int(result["tokens_in"])
     except TokenBudgetExceeded:
         ai_content = (
             "Desculpe, atingimos o limite de tokens desta sessão. "
             "Por favor, recarregue a página para iniciar uma nova conversa."
         )
         tokens_used = 0
+        tokens_in = 0
 
     st.session_state["messages"].append({"role": "assistant", "content": ai_content})
     with st.chat_message("assistant"):
@@ -92,4 +95,8 @@ if user_input := st.chat_input("Olá! Como posso ajudar com sua conta de energia
 
     save_message(conversation_id, "assistant", ai_content)
     if tokens_used > 0:
-        update_token_totals(conversation_id, tokens_in=0, tokens_out=tokens_used)
+        update_token_totals(
+            conversation_id,
+            tokens_in=tokens_in,
+            tokens_out=tokens_used - tokens_in,
+        )

@@ -1,15 +1,15 @@
 """Conversation persistence helpers — thin wrappers around DuckDB operations.
 
-Each function opens and closes its own connection so callers don't need to
-manage connection lifecycle. All use RETURNING id for atomic insert+fetch.
+Each function uses the `connection()` context manager from `energia.db` so
+callers don't need to manage connection lifecycle. All use RETURNING id for
+atomic insert+fetch.
 """
-from energia.db import connect
+from energia.db import connection
 
 
 def mint_user(session_id: str, db_path: str | None = None) -> str:
     """Return the UUID of the user for session_id, creating a row if needed."""
-    con = connect(db_path)
-    try:
+    with connection(db_path) as con:
         row = con.execute(
             "SELECT id FROM users WHERE session_id = ?", [session_id]
         ).fetchone()
@@ -22,14 +22,11 @@ def mint_user(session_id: str, db_path: str | None = None) -> str:
         if new_row is None:
             raise RuntimeError(f"Failed to create user for session_id={session_id!r}")
         return str(new_row[0])
-    finally:
-        con.close()
 
 
 def mint_conversation(user_id: str, db_path: str | None = None) -> str:
     """Create a new conversation row and return its UUID."""
-    con = connect(db_path)
-    try:
+    with connection(db_path) as con:
         row = con.execute(
             "INSERT INTO conversations (user_id) VALUES (?) RETURNING id",
             [user_id],
@@ -37,8 +34,6 @@ def mint_conversation(user_id: str, db_path: str | None = None) -> str:
         if row is None:
             raise RuntimeError(f"Failed to create conversation for user_id={user_id!r}")
         return str(row[0])
-    finally:
-        con.close()
 
 
 def save_message(
@@ -48,8 +43,7 @@ def save_message(
     db_path: str | None = None,
 ) -> str:
     """Insert a message row and return its UUID."""
-    con = connect(db_path)
-    try:
+    with connection(db_path) as con:
         row = con.execute(
             "INSERT INTO messages (conversation_id, role, content) "
             "VALUES (?, ?, ?) RETURNING id",
@@ -58,8 +52,6 @@ def save_message(
         if row is None:
             raise RuntimeError("Failed to insert message")
         return str(row[0])
-    finally:
-        con.close()
 
 
 def update_token_totals(
@@ -69,8 +61,7 @@ def update_token_totals(
     db_path: str | None = None,
 ) -> None:
     """Increment total_tokens_in and total_tokens_out for a conversation."""
-    con = connect(db_path)
-    try:
+    with connection(db_path) as con:
         con.execute(
             "UPDATE conversations "
             "SET total_tokens_in  = total_tokens_in  + ?, "
@@ -78,5 +69,3 @@ def update_token_totals(
             "WHERE id = ?",
             [tokens_in, tokens_out, conversation_id],
         )
-    finally:
-        con.close()
