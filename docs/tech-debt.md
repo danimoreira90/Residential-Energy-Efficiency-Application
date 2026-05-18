@@ -7,6 +7,23 @@ Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
 
+## TD-008: test_models.py edited under CC-03 — HR-4 audit trail
+
+**What.** `tests/test_models.py` was modified: `needs_user_confirmation` removed from
+the `_valid_bill()` builder dict, `TestParseResult` class added, and
+`test_bill_no_longer_has_needs_user_confirmation` added to `TestBill`. This is part
+of the CC-03 refactor that moves the workflow flag from `Bill` into a `ParseResult`
+wrapper.
+
+**Why introduced.** This is an HR-4 process record, not deferred work. Daniel
+explicitly approved the edit before implementation. No assertion was weakened —
+tests were added and a field removed that no longer belongs on `Bill`.
+
+**Resolution target.** Already resolved — recorded here as the required HR-4 audit
+trail entry.
+
+---
+
 ## TD-006: Task 0.4 migration tests over-specified for migration count
 
 **What.** `tests/db/test_migrations.py` had two assertions hardcoded for

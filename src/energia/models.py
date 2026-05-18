@@ -28,12 +28,7 @@ class BillComposition(BaseModel):
 
 
 class Bill(BaseModel):
-    """A single monthly energy bill.
-
-    needs_user_confirmation is set True by the parser when any extracted field's
-    confidence < 0.85. The chatbot orchestrator must check this flag before consuming
-    bill data in any tool call.
-    """
+    """A single monthly energy bill."""
 
     distributor: str = Field(description="Distribuidora name, e.g. 'Enel Rio'")
     installation_number: str = Field(description="Número da instalação / UC")
@@ -50,6 +45,15 @@ class Bill(BaseModel):
     total_brl: Decimal = Field(description="Total R$ to pay")
     composition: BillComposition
     confidence: float = Field(ge=0, le=1, description="Vision extraction confidence, 0-1")
-    needs_user_confirmation: bool = Field(
-        description="True if any field has confidence < 0.85"
-    )
+
+
+class ParseResult(BaseModel):
+    """Wraps a parsed Bill with its workflow flag.
+
+    needs_user_confirmation is True when any extracted field's confidence < 0.85;
+    the chatbot orchestrator must check this flag before consuming bill data in a
+    tool call.
+    """
+
+    bill: Bill
+    needs_user_confirmation: bool

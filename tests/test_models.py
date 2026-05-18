@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from energia.models import Bill, BillComposition
+from energia.models import Bill, BillComposition, ParseResult
 
 
 # dict[str, Any]: test builders mix field types; Any avoids 13-field typed overloads.
@@ -33,7 +33,6 @@ def _valid_bill(**overrides: Any) -> dict[str, Any]:
         "total_brl": Decimal("287.40"),
         "composition": BillComposition(**_valid_composition()),
         "confidence": 0.95,
-        "needs_user_confirmation": False,
     }
     base.update(overrides)
     return base
@@ -82,3 +81,26 @@ class TestBill:
     def test_bill_rejects_confidence_below_zero(self) -> None:
         with pytest.raises(ValidationError):
             Bill(**_valid_bill(confidence=-0.1))
+
+    def test_bill_no_longer_has_needs_user_confirmation(self) -> None:
+        bill = Bill(**_valid_bill())
+        assert not hasattr(bill, "needs_user_confirmation")
+
+
+class TestParseResult:
+    def test_parse_result_requires_bill(self) -> None:
+        with pytest.raises(ValidationError):
+            ParseResult(needs_user_confirmation=False)  # type: ignore[call-arg]
+
+    def test_parse_result_requires_needs_user_confirmation(self) -> None:
+        with pytest.raises(ValidationError):
+            ParseResult(bill=Bill(**_valid_bill()))  # type: ignore[call-arg]
+
+    def test_parse_result_stores_flag_true(self) -> None:
+        result = ParseResult(bill=Bill(**_valid_bill()), needs_user_confirmation=True)
+        assert result.needs_user_confirmation is True
+        assert result.bill.distributor == "Enel Rio"
+
+    def test_parse_result_stores_flag_false(self) -> None:
+        result = ParseResult(bill=Bill(**_valid_bill()), needs_user_confirmation=False)
+        assert result.needs_user_confirmation is False
