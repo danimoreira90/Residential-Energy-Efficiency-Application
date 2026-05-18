@@ -1,19 +1,16 @@
-"""LangChain @tool wrappers around domain functions.
+"""LangChain tool registry for the Energia chatbot.
 
-Each tool is a thin wrapper: domain logic lives in the corresponding domain
-module (bill/, tariff/, solar/), which remains testable without any LangChain
-or Anthropic imports. The wrapper adds the @tool decorator, docstring-as-
-description, and args_schema= for input validation.
+Each tool file calls register_tool() on its tool instance, which adds it to the
+registry. Importing each tool module here triggers that self-registration.
+ALL_TOOLS is then derived from the registry — no hand-maintained list.
 
-Sprint 0: hello_world stub — demonstrates tool-use loop.
-Sprint 1 adds: parse_bill_image_tool, store_bill_tool, list_user_bills_tool,
-               compare_bill_periods_tool, detect_consumption_anomaly_tool.
-Sprint 2 adds: current_bandeira_tool, get_tariff_tool,
-               simulate_tarifa_branca_tool.
-Sprint 3 adds: estimate_solar_system_tool, solar_payback_tool.
+To add a tool in a future sprint:
+  1. Create src/energia/chat/tools/<name>.py and call register_tool() at the bottom.
+  2. Add one import line below — __init__.py needs no other changes.
 """
 from langchain_core.tools import BaseTool
 
-from energia.chat.tools.hello import hello_world_tool
+import energia.chat.tools.hello  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers hello_world_tool
+from energia.chat.tools.registry import get_all_tools
 
-ALL_TOOLS: list[BaseTool] = [hello_world_tool]
+ALL_TOOLS: list[BaseTool] = get_all_tools()

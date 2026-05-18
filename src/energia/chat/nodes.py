@@ -23,6 +23,8 @@ tool_node = ToolNode(ALL_TOOLS, handle_tool_errors=True)
 def _get_llm_with_tools() -> Any:
     global _llm, _llm_with_tools
     if _llm_with_tools is None:
+        # langchain-anthropic 1.4.3 stubs declare timeout/stop as required args;
+        # both have runtime defaults — ignore is legitimate until upstream stubs are fixed.
         _llm = ChatAnthropic(model_name=settings.anthropic_model, max_tokens_to_sample=4096)  # type: ignore[call-arg]
         _llm_with_tools = _llm.bind_tools(ALL_TOOLS)
     return _llm_with_tools

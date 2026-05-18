@@ -4,6 +4,7 @@ from typing import Any
 
 import streamlit as st
 from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
 
 from energia.chat.audit import DuckDBAuditCallback
 from energia.chat.budget import TokenBudgetCallback, TokenBudgetExceeded
@@ -21,61 +22,48 @@ load_dotenv()
 # Apply any pending migrations on every startup — idempotent and fast.
 migrate()
 
-st.set_page_config(page_title="Assistente de Energia", page_icon="⚡")
-st.title("⚡ Assistente de Eficiência Energética")
 
-# ── Session bootstrap ────────────────────────────────────────────────────────
+def _bootstrap_session() -> None:
+    """Initialise all required st.session_state keys on first page load."""
+    if "session_id" not in st.session_state:
+        st.session_state["session_id"] = str(uuid.uuid4())
+    if "user_id" not in st.session_state:
+        st.session_state["user_id"] = mint_user(str(st.session_state["session_id"]))
+    if "conversation_id" not in st.session_state:
+        st.session_state["conversation_id"] = mint_conversation(
+            str(st.session_state["user_id"])
+        )
+    if "messages" not in st.session_state:
+        st.session_state["messages"] = []
+    if "budget_cb" not in st.session_state:
+        st.session_state["budget_cb"] = TokenBudgetCallback()
 
-if "session_id" not in st.session_state:
-    st.session_state["session_id"] = str(uuid.uuid4())
 
-if "user_id" not in st.session_state:
-    st.session_state["user_id"] = mint_user(str(st.session_state["session_id"]))
+def _render_history() -> None:
+    """Render all previous messages from st.session_state."""
+    for msg in st.session_state["messages"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-if "conversation_id" not in st.session_state:
-    st.session_state["conversation_id"] = mint_conversation(
-        str(st.session_state["user_id"])
-    )
 
-if "messages" not in st.session_state:
-    st.session_state["messages"] = []
+def handle_message(
+    user_input: str,
+    user_id: str,
+    conversation_id: str,
+    budget_cb: TokenBudgetCallback,
+) -> tuple[str, int, int]:
+    """Invoke GRAPH and return (ai_content, tokens_used, tokens_in).
 
-if "budget_cb" not in st.session_state:
-    st.session_state["budget_cb"] = TokenBudgetCallback()
-
-# ── Render chat history ──────────────────────────────────────────────────────
-
-for msg in st.session_state["messages"]:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-# ── Chat input ───────────────────────────────────────────────────────────────
-
-if user_input := st.chat_input("Olá! Como posso ajudar com sua conta de energia?"):
-    st.session_state["messages"].append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
-
-    save_message(
-        str(st.session_state["conversation_id"]),
-        "user",
-        user_input,
-    )
-
-    conversation_id: str = str(st.session_state["conversation_id"])
-    budget_cb: TokenBudgetCallback = st.session_state["budget_cb"]
+    Returns a safe fallback tuple if TokenBudgetExceeded is raised.
+    """
     audit_cb = DuckDBAuditCallback(conversation_id=conversation_id)
-
-    from langchain_core.messages import HumanMessage
-
     graph_state: dict[str, Any] = {
         "messages": [HumanMessage(content=user_input)],
-        "user_id": str(st.session_state["user_id"]),
+        "user_id": user_id,
         "conversation_id": conversation_id,
         "tokens_used": 0,
         "tokens_in": 0,
     }
-
     try:
         result = GRAPH.invoke(graph_state, config={"callbacks": [audit_cb, budget_cb]})
         ai_content: str = str(result["messages"][-1].content)
@@ -88,15 +76,47 @@ if user_input := st.chat_input("Olá! Como posso ajudar com sua conta de energia
         )
         tokens_used = 0
         tokens_in = 0
+    return ai_content, tokens_used, tokens_in
+
+
+# ── Page layout and event loop ───────────────────────────────────────────────
+
+st.set_page_config(page_title="Assistente de Energia", page_icon="⚡")
+st.title("⚡ Assistente de Eficiência Energética")
+
+_bootstrap_session()
+_render_history()
+
+if user_input := st.chat_input("Olá! Como posso ajudar com sua conta de energia?"):
+    st.session_state["messages"].append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    save_message(
+        str(st.session_state["conversation_id"]),
+        "user",
+        user_input,
+    )
+
+    ai_content, tokens_used, tokens_in = handle_message(
+        user_input,
+        str(st.session_state["user_id"]),
+        str(st.session_state["conversation_id"]),
+        st.session_state["budget_cb"],
+    )
 
     st.session_state["messages"].append({"role": "assistant", "content": ai_content})
     with st.chat_message("assistant"):
         st.markdown(ai_content)
 
-    save_message(conversation_id, "assistant", ai_content)
+    save_message(
+        str(st.session_state["conversation_id"]),
+        "assistant",
+        ai_content,
+    )
     if tokens_used > 0:
         update_token_totals(
-            conversation_id,
+            str(st.session_state["conversation_id"]),
             tokens_in=tokens_in,
             tokens_out=tokens_used - tokens_in,
         )
