@@ -53,3 +53,8 @@ def input_matches(result: ExampleResult, expected: dict[str, Any]) -> bool:
 def output_matches_pattern(result: ExampleResult, pattern: str) -> bool:
     """True when the final assistant message matches the given regex pattern (DOTALL)."""
     return bool(re.search(pattern, result.final_message, re.DOTALL))
+
+
+def output_not_matches_pattern(result: ExampleResult, pattern: str) -> bool:
+    """True when the final assistant message does NOT match the given regex pattern (DOTALL)."""
+    return not bool(re.search(pattern, result.final_message, re.DOTALL))

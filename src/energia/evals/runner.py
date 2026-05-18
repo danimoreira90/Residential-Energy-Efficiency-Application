@@ -40,6 +40,7 @@ from energia.evals.scorers import (
     ToolCallRecord,
     input_matches,
     output_matches_pattern,
+    output_not_matches_pattern,
     tool_called,
 )
 
@@ -75,6 +76,7 @@ class EvalExample(BaseModel):
     expected_tool: str | None = None
     expected_input_match: dict[str, Any] | None = None
     expected_output_pattern: str | None = None
+    expected_output_not_pattern: str | None = None
 
 
 class ExampleReport(BaseModel):
@@ -198,6 +200,9 @@ def score_attempt(result: ExampleResult, example: EvalExample) -> bool:
             return False
     if example.expected_output_pattern is not None:
         if not output_matches_pattern(result, example.expected_output_pattern):
+            return False
+    if example.expected_output_not_pattern is not None:
+        if not output_not_matches_pattern(result, example.expected_output_not_pattern):
             return False
     return True
 
