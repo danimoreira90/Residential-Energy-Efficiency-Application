@@ -47,3 +47,24 @@ def test_budget_callback_warns_at_50_percent(caplog: Any) -> None:
         cb.on_llm_end(response=half_result, run_id=uuid.uuid4())
 
     assert any("50%" in r.message or "budget" in r.message.lower() for r in caplog.records)
+
+
+def test_budget_callback_warns_at_80_percent(caplog: Any) -> None:
+    """on_llm_end at 80% of budget emits a WARNING log exactly once (_warned_80 idempotency)."""
+    cb = TokenBudgetCallback()
+    eighty_pct = int(settings.session_token_budget * 0.8)
+    result_80 = _make_llm_result(input_tokens=eighty_pct, output_tokens=0)
+
+    with caplog.at_level(logging.WARNING, logger="energia.chat.budget"):
+        cb.on_llm_end(response=result_80, run_id=uuid.uuid4())
+
+    warning_80_records = [r for r in caplog.records if "80%" in r.message]
+    assert len(warning_80_records) == 1
+
+    # A second call past 80% must NOT fire the warning again.
+    caplog.clear()
+    result_extra = _make_llm_result(input_tokens=1, output_tokens=0)
+    with caplog.at_level(logging.WARNING, logger="energia.chat.budget"):
+        cb.on_llm_end(response=result_extra, run_id=uuid.uuid4())
+
+    assert not any("80%" in r.message for r in caplog.records)

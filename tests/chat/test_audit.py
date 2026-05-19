@@ -93,3 +93,37 @@ def test_audit_callback_does_not_log_pii(tmp_db: dict[str, str]) -> None:
     stored = str(row[0])
     assert cpf_value not in stored
     assert "[CPF-REDACTED]" in stored
+
+
+def test_audit_callback_silent_skip_on_tool_end_without_start(
+    tmp_db: dict[str, str],
+) -> None:
+    """on_tool_end with an unregistered run_id silently returns — no exception, no DB write."""
+    cb = DuckDBAuditCallback(
+        conversation_id=tmp_db["conversation_id"],
+        db_path=tmp_db["db_path"],
+    )
+    cb.on_tool_end(output='{"result": "ok"}', run_id=uuid.uuid4())
+
+    con = duckdb.connect(tmp_db["db_path"])
+    row = con.execute("SELECT COUNT(*) FROM tool_calls").fetchone()
+    con.close()
+    assert row is not None
+    assert row[0] == 0
+
+
+def test_audit_callback_silent_skip_on_tool_error_without_start(
+    tmp_db: dict[str, str],
+) -> None:
+    """on_tool_error with an unregistered run_id silently returns — no exception, no DB write."""
+    cb = DuckDBAuditCallback(
+        conversation_id=tmp_db["conversation_id"],
+        db_path=tmp_db["db_path"],
+    )
+    cb.on_tool_error(error=ValueError("unexpected error"), run_id=uuid.uuid4())
+
+    con = duckdb.connect(tmp_db["db_path"])
+    row = con.execute("SELECT COUNT(*) FROM tool_calls").fetchone()
+    con.close()
+    assert row is not None
+    assert row[0] == 0

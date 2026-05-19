@@ -7,6 +7,40 @@ Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
 
+## TD-010: test_budget.py edited under TE-02 — HR-4 audit trail
+
+**What.** `tests/chat/test_budget.py` was extended with
+`test_budget_callback_warns_at_80_percent`, covering the `if pct >= 0.8 and not
+self._warned_80:` branch in `TokenBudgetCallback.on_llm_end`. The 80% threshold
+is mandated by HR-7 and was the only warning branch without a test. The test also
+asserts the `_warned_80` flag suppresses duplicate warnings.
+
+**Why introduced.** This is an HR-4 process record, not deferred work. Daniel
+explicitly approved the edit before implementation. No existing assertion was
+weakened — only new coverage was added.
+
+**Resolution target.** Already resolved — recorded here as the required HR-4
+audit trail entry.
+
+---
+
+## TD-009: test_audit.py edited under TE-01 — HR-4 audit trail
+
+**What.** `tests/chat/test_audit.py` was extended with two new test functions:
+`test_audit_callback_silent_skip_on_tool_end_without_start` and
+`test_audit_callback_silent_skip_on_tool_error_without_start`. They cover the
+`if call_id is None: return` early-return branches in `on_tool_end` and
+`on_tool_error` that were permanently dark paths in the prior suite.
+
+**Why introduced.** This is an HR-4 process record, not deferred work. Daniel
+explicitly approved the edit before implementation. No existing assertion was
+weakened — only new coverage was added.
+
+**Resolution target.** Already resolved — recorded here as the required HR-4
+audit trail entry.
+
+---
+
 ## TD-008: test_models.py edited under CC-03 — HR-4 audit trail
 
 **What.** `tests/test_models.py` was modified: `needs_user_confirmation` removed from
