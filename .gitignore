@@ -17,6 +17,9 @@ build/
 data/energia.duckdb
 data/aneel-cache.sqlite
 
+# Real bill scans for Stage C evals — LGPD: never commit (HR-6)
+tests/fixtures/bills/
+
 # Large wrong-domain NREL CSVs — DROP verdict (see docs/MIGRATION.md)
 app_energia/High_RE_2030_*.csv
 app_energia/MidCase_2030_*.csv

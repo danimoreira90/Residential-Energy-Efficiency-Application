@@ -746,77 +746,223 @@ uv run pytest tests/test_models.py::TestBill -q
 **Depends on:** Task 1.2
 **Branch:** `feature/bill-parser`
 
-#### Goal
+#### Stages
 
-Vision-based extraction from a Brazilian bill image. Hash-and-cache for idempotency. Fail-closed on validation errors.
+This task ships in three stages. Each stage gets its own confirmation block before work begins:
 
-#### Files
+- **Stage A (this section):** define `parse_bill_image` as a plain Python function in
+  `src/energia/bill/parser.py`. All 8 tests are mocked — no real API calls. No graph wiring,
+  no tool registration, no DuckDB interaction.
+- **Stage B:** wrap the function as a LangChain `@tool`, call `register_tool()`, and wire it
+  into `ALL_TOOLS` and the graph. Registration does NOT happen in Stage A.
+- **Stage C:** write real-bill evals using images in `tests/fixtures/bills/` (gitignored).
+  Requires `ANTHROPIC_API_KEY` to run.
+
+#### Goal — Stage A
+
+A pure function `parse_bill_image(image_bytes: bytes, media_type: str) -> ParseResult` that:
+
+- Validates the image input before calling the API.
+- Calls `anthropic.messages.create` directly (not via the LangChain `_llm` singleton).
+- Returns `ParseResult(bill=bill, needs_user_confirmation=(bill.confidence < 0.85))`.
+- Raises `BillParseError` on **all** failure paths: invalid input, API error of any kind
+  (status errors, connection errors), 5xx after one retry, unparseable JSON, or Pydantic
+  validation failure.
+- Never logs image bytes, CPF, or `installation_number` (HR-6).
+
+**Hash-based idempotency and caching** (`find_by_hash` / `insert` via `bill_store`) move to
+**Task 1.4** (`src/energia/bill/store.py`). Task 1.3 Stage A has no DuckDB dependency.
+
+**Registration happens in Stage B only.** Stage A defines the function; Stage B wraps it in
+`@tool("parse_bill_image", args_schema=ParseBillInput)` and calls `register_tool()`.
+
+#### Files — Stage A
 
 ```
-src/energia/bill/parser.py           # parse_bill_image function
-tests/bill/test_parser.py            # mocked Anthropic responses
-tests/bill/fixtures/                 # 3 sample bill PNGs (Enel RJ, Light, CPFL — fictitious data)
+src/energia/bill/parser.py                # parse_bill_image + BillParseError
+tests/bill/__init__.py                    # empty
+tests/bill/test_parser.py                 # 8 failing tests (mocked SDK)
+tests/bill/fixtures/enel_rj.png           # 1×1 pixel placeholder PNG, committed
+tests/bill/fixtures/light.png             # 1×1 pixel placeholder PNG, committed
+tests/bill/fixtures/cpfl.png              # 1×1 pixel placeholder PNG, committed
 ```
 
-#### Implementation outline
+**Fixture folders:**
+
+- `tests/bill/fixtures/` — committed. Contains fictitious 1×1 pixel PNGs used as
+  deterministic byte inputs to mocked tests. These are NOT real bills — they exist purely
+  so tests have a real `bytes` value to pass without embedding raw bytes in test code.
+- `tests/fixtures/bills/` — gitignored (added to `.gitignore`). Contains real Enel/Light/CPFL
+  bill scans for Stage C on-demand real-API evals. Never committed — LGPD compliance (HR-6).
+
+#### Implementation outline — Stage A
 
 ```python
-@registry.register(
-    name="parse_bill_image",
-    description=(
-        "Lê uma foto ou PDF de uma conta de luz brasileira e extrai os campos "
-        "estruturados: distribuidora, número da instalação, período, consumo em "
-        "kWh, valor total em R$, bandeira tarifária, e a composição de tributos. "
-        "Use sempre que o usuário enviar uma imagem de conta. Pergunte ao usuário "
-        "para confirmar valores quando confidence < 0.85."
-    ),
-    input_model=ParseBillInput,
-)
-def parse_bill_image(inp: ParseBillInput) -> dict:
-    bill_hash = sha256(inp.image_bytes).hexdigest()
-    existing = bill_store.find_by_hash(inp.user_id, bill_hash)
-    if existing:
-        return existing.model_dump()
-    response = anthropic.messages.create(
-        model=settings.ANTHROPIC_MODEL,
-        max_tokens=2000,
-        system=BILL_EXTRACTION_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": inp.media_type, "data": ...}},
-                {"type": "text", "text": "Extraia os campos da conta nesta imagem em JSON."},
-            ],
-        }],
-    )
-    bill = Bill.model_validate_json(_extract_json(response))
-    bill_store.insert(user_id=inp.user_id, bill=bill, bill_hash=bill_hash)
-    return bill.model_dump()
+# src/energia/bill/parser.py
+import anthropic
+import base64
+import json
+import logging
+import re
+from typing import Final
+
+from energia.config import settings
+from energia.models import Bill, ParseResult
+
+logger = logging.getLogger(__name__)
+
+SUPPORTED_MEDIA_TYPES: Final = frozenset({"image/jpeg", "image/png", "image/gif", "image/webp"})
+
+BILL_EXTRACTION_PROMPT = """\
+Você é um parser de contas de energia elétrica brasileiras. Extraia os campos
+estruturados da imagem e retorne SOMENTE um objeto JSON válido, sem texto adicional.
+Campos obrigatórios: distributor, installation_number, period (YYYY-MM), issue_date,
+due_date, consumption_kwh, tariff_group, modalidade, total_brl, composition
+(tusd, te, icms), confidence (0.0–1.0).
+"""
+
+# Lazily initialised on first parse_bill_image call — not at import time.
+# Prevents ANTHROPIC_API_KEY from being required before load_dotenv() has run.
+# Tests patch _client directly; _get_client() returns the patched value when non-None.
+_client: anthropic.Anthropic | None = None
+
+
+def _get_client() -> anthropic.Anthropic:
+    global _client
+    if _client is None:
+        _client = anthropic.Anthropic()
+    return _client
+
+
+class BillParseError(Exception):
+    """Raised for all parse failures: invalid input, API error, or validation error."""
+
+
+def parse_bill_image(image_bytes: bytes, media_type: str) -> ParseResult:
+    if not image_bytes:
+        raise BillParseError("image_bytes is empty")
+    if media_type not in SUPPORTED_MEDIA_TYPES:
+        raise BillParseError(f"Unsupported media type: {media_type!r}")
+
+    logger.info("Parsing bill image: media_type=%s size_bytes=%d", media_type, len(image_bytes))
+
+    encoded = base64.standard_b64encode(image_bytes).decode()
+    response = _call_with_one_retry(encoded, media_type)
+    bill = _parse_response(response)
+    return ParseResult(bill=bill, needs_user_confirmation=(bill.confidence < 0.85))
+
+
+def _call_with_one_retry(encoded: str, media_type: str) -> anthropic.types.Message:
+    _messages = [{
+        "role": "user",
+        "content": [
+            {"type": "image", "source": {"type": "base64",
+             "media_type": media_type, "data": encoded}},
+            {"type": "text", "text": "Extraia os campos da conta em JSON."},
+        ],
+    }]
+    try:
+        return _get_client().messages.create(
+            model=settings.anthropic_model,
+            max_tokens=2000,
+            system=BILL_EXTRACTION_PROMPT,
+            messages=_messages,
+        )
+    except anthropic.APIStatusError as exc:
+        if exc.status_code < 500:
+            raise BillParseError(f"Anthropic API error {exc.status_code}") from exc
+        logger.warning("Anthropic 5xx (status=%d), retrying once", exc.status_code)
+    except anthropic.APIError as exc:
+        # Covers APIConnectionError, APITimeoutError, and any future SDK subclasses.
+        raise BillParseError(f"Anthropic connection/API error: {exc}") from exc
+
+    # One retry after 5xx
+    try:
+        return _get_client().messages.create(
+            model=settings.anthropic_model,
+            max_tokens=2000,
+            system=BILL_EXTRACTION_PROMPT,
+            messages=_messages,
+        )
+    except anthropic.APIError as exc:
+        raise BillParseError(f"Anthropic error on retry: {exc}") from exc
+
+
+def _parse_response(response: anthropic.types.Message) -> Bill:
+    raw = response.content[0].text if response.content else ""
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not match:
+        raise BillParseError("No JSON object found in vision response")
+    try:
+        return Bill.model_validate(json.loads(match.group()))
+    except Exception as exc:
+        raise BillParseError(f"Bill validation failed: {exc}") from exc
 ```
 
-#### Tests (RED first — must fail before impl)
+#### Tests — Stage A (RED first — must fail before impl)
 
 ```python
-def test_parse_bill_returns_existing_when_hash_matches(tmp_db, mocker)
-def test_parse_bill_calls_vision_when_new(tmp_db, mocker)
-def test_parse_bill_validates_response_shape(tmp_db, mocker)
-def test_parse_bill_sets_needs_confirmation_when_low_confidence(tmp_db, mocker)
-def test_parse_bill_does_not_store_on_validation_error(tmp_db, mocker)
-def test_parse_bill_handles_anthropic_5xx_with_one_retry(tmp_db, mocker)
-def test_parse_bill_does_not_log_image_bytes_or_cpf(tmp_db, mocker, caplog)  # HR-6
+# tests/bill/test_parser.py  — 8 tests, all mocked, no tmp_db (no DuckDB in Stage A)
+
+def test_parse_bill_returns_parse_result_with_bill_on_success(mocker):
+    """Parser returns a ParseResult containing a fully validated Bill on a clean API response."""
+
+def test_parse_bill_calls_vision_api_exactly_once_on_success(mocker):
+    """_client.messages.create is called exactly once on a clean response."""
+
+def test_parse_bill_raises_on_malformed_json_response(mocker):
+    """BillParseError raised when the API response contains no valid JSON object."""
+
+def test_parse_bill_sets_needs_confirmation_when_low_confidence(mocker):
+    """ParseResult.needs_user_confirmation is True when bill.confidence < 0.85."""
+
+def test_parse_bill_raises_on_validation_error_no_partial_data(mocker):
+    """BillParseError raised (not partial ParseResult) when JSON is valid but Bill schema fails."""
+
+def test_parse_bill_retries_once_on_5xx_raises_if_retry_also_fails(mocker):
+    """_client.messages.create is called exactly twice; BillParseError raised after second 5xx."""
+
+def test_parse_bill_does_not_log_image_bytes_or_pii(mocker, caplog):
+    """caplog.text contains no CPF pattern and no base64-like string >= 50 chars (HR-6)."""
+
+def test_parse_bill_raises_on_unusable_image():
+    """BillParseError raised for empty bytes and unsupported media_type — no API call made (TE-07).
+
+    Note: valid MIME with corrupt image content (e.g. b"not-a-png" with media_type="image/png")
+    is NOT caught by pre-flight validation. It is handled implicitly: the Anthropic API returns
+    an APIError (caught by _call_with_one_retry -> BillParseError) or returns unparseable text
+    (caught by _parse_response -> BillParseError). This is a known documented gap in pre-flight
+    coverage; the BillParseError contract still holds on that path.
+    """
 ```
 
-#### Verification
+#### Verification — Stage A
 
 ```bash
 uv run pytest tests/bill/test_parser.py -q
-# Expected before impl: 7 failed
-# After impl: 7 passed
+# Before impl: 8 failed (parser.py does not exist)
+# After impl:  8 passed
+
+uv run pytest -q
+# Expected: 109 passed (101 existing + 8 new)
+
+uv run pyright
+# Expected: 0 errors, 0 warnings, 0 informations
+
+uv run ruff check .
+# Expected: All checks passed!
 ```
 
-#### Anti-cheat / HR-6
+#### Anti-cheat — Stage A
 
-- The `caplog` test asserts no PII reaches Python logging. If you cannot make this test pass with your logging setup, the logging setup is wrong, not the test.
+- Do NOT call `register_tool()`. Stage A defines the function; Stage B registers it.
+- Do NOT import or call `bill_store`. Hash-based idempotency belongs in Task 1.4.
+- Do NOT make real Anthropic API calls in `test_parser.py`. All tests mock `_client`.
+- HR-5: `BillParseError` must be raised on every failure path. Never return a partial
+  `ParseResult` with a partially-validated Bill.
+- HR-6: `test_parse_bill_does_not_log_pii` is the enforcement mechanism. Fix the logger,
+  not the test.
+- Run plain `uv run pyright` (full project), not `pyright src/`.
 
 ---
 
