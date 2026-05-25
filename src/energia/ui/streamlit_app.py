@@ -51,12 +51,13 @@ def handle_message(
     user_id: str,
     conversation_id: str,
     budget_cb: TokenBudgetCallback,
+    db_path: str | None = None,
 ) -> tuple[str, int, int]:
     """Invoke GRAPH and return (ai_content, tokens_used, tokens_in).
 
     Returns a safe fallback tuple if TokenBudgetExceeded is raised.
     """
-    audit_cb = DuckDBAuditCallback(conversation_id=conversation_id)
+    audit_cb = DuckDBAuditCallback(conversation_id=conversation_id, db_path=db_path)
     graph_state: dict[str, Any] = {
         "messages": [HumanMessage(content=user_input)],
         "user_id": user_id,

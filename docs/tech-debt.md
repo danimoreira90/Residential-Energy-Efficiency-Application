@@ -7,6 +7,40 @@ Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
 
+## TD-011: test_streamlit_helpers.py edited under CC-02 follow-up — HR-4 audit trail
+
+**What.** `tests/ui/test_streamlit_helpers.py` was modified: both existing tests
+now consume the `tmp_db` fixture and pass `tmp_db["user_id"]` /
+`tmp_db["conversation_id"]` / `db_path=tmp_db["db_path"]` to `handle_message`,
+replacing the hardcoded `"user-id" / "conv-id"` placeholder strings. A new
+regression-guard test, `test_settings_duckdb_path_must_be_redirected_under_pytest`,
+was added in the same file to fail loudly if the redirect ever regresses. This
+closes a data leak where the helper tests, by virtue of importing
+`energia.ui.streamlit_app`, triggered the module-level `migrate()` call against
+the production `data/energia.duckdb` — and in some runs caused
+`_bootstrap_session()` to write a `users` row with a `MagicMock`-stringified
+`session_id`.
+
+`tests/ui/conftest.py` was also extended to mutate `settings.duckdb_path` to a
+per-session temp file at module load, before the streamlit stub is registered,
+so the module-level `migrate()` in `streamlit_app.py` lands in temp regardless
+of the stub's effectiveness.
+
+`src/energia/ui/streamlit_app.py` gained an optional `db_path: str | None = None`
+parameter on `handle_message`, threaded into `DuckDBAuditCallback`. The
+Streamlit event-loop call site at the bottom of the module is unchanged (gets
+the `None` default and reads `settings.duckdb_path` via `connect()`).
+
+**Why introduced.** This is an HR-4 process record, not deferred work. Daniel
+explicitly approved the edit before implementation. No existing assertion was
+weakened — only fixture wiring changed, explicit DB-path plumbing was added,
+and a forward-looking regression guard was created.
+
+**Resolution target.** Already resolved — recorded here as the required HR-4
+audit trail entry.
+
+---
+
 ## TD-010: test_budget.py edited under TE-02 — HR-4 audit trail
 
 **What.** `tests/chat/test_budget.py` was extended with
