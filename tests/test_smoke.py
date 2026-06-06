@@ -53,7 +53,12 @@ def test_import_chat_tools() -> None:
     from energia.chat.tools import ALL_TOOLS
 
     assert isinstance(ALL_TOOLS, list)
-    assert len(ALL_TOOLS) == 1  # Sprint 0: hello_world stub added in Task 0.5
+    names = {t.name for t in ALL_TOOLS}
+    # Membership rather than count: survives future additions; locks the two
+    # tools that must exist at this point in the project (hello_world from
+    # Task 0.5, parse_bill from Task 1.3 Stage B).
+    assert "hello_world" in names
+    assert "parse_bill" in names
 
 
 def test_import_ui() -> None:

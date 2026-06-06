@@ -7,6 +7,34 @@ Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
 
+## TD-012: test_smoke.py edited under Task 1.3 Stage B — HR-4 audit trail
+
+**What.** `tests/test_smoke.py::test_import_chat_tools` was modified. The
+previous assertion `assert len(ALL_TOOLS) == 1` (a stale Sprint-0 invariant
+that locked in the hello_world stub as the only registered tool) was replaced
+with a membership-based assertion:
+
+```python
+names = {t.name for t in ALL_TOOLS}
+assert "hello_world" in names
+assert "parse_bill" in names
+```
+
+The new form is strictly stronger: it asserts the identity of the tools that
+must be registered, not just the count, and it survives future tool additions
+without needing another edit. Task 1.3 Stage B added the `parse_bill` tool
+(InjectedState pattern, Option A), which would have broken the strict count.
+
+**Why introduced.** This is an HR-4 process record, not deferred work. Daniel
+explicitly approved the edit before implementation, with the explicit note that
+a membership assertion is stronger than the count it replaces. No existing
+assertion was weakened — the test now pins identity rather than cardinality.
+
+**Resolution target.** Already resolved — recorded here as the required HR-4
+audit trail entry.
+
+---
+
 ## TD-011: test_streamlit_helpers.py edited under CC-02 follow-up — HR-4 audit trail
 
 **What.** `tests/ui/test_streamlit_helpers.py` was modified: both existing tests
