@@ -1097,6 +1097,40 @@ uv run python -m energia.evals.run regression
 
 ---
 
+### Task 1.8 — Human-in-the-loop bill-field correction
+
+**Owner:** ai-ml-engineer
+**Depends on:** Task 1.3 (parsed bill cached in session)
+**Status:** Planned (v1)
+
+> Numbering note: this task was specified as "Task 1.5" in its source brief.
+> Task 1.5 (`compare_bill_periods`) was already claimed when the entry landed,
+> so it ships here as Task 1.8 — chosen as the next free Sprint 1 slot, after
+> Task 1.7 — without renumbering any existing task (HR-3-style discipline on
+> the plan itself).
+
+#### Goal
+
+When the agent presents an extracted bill and the user says a value is wrong,
+the agent asks for the correct value and updates ONLY that field on the cached
+bill. The corrected value comes from the user (typed), never re-inferred.
+
+#### Hard constraint (HR-5)
+
+The correction MUST be a surgical single-field update via a dedicated tool
+(e.g. `correct_bill_field(field, value)`) that mutates only the named field and
+leaves every other field byte-for-byte intact. A whole-bill re-emit (asking the
+LLM to regenerate corrected JSON) is forbidden — it risks the model silently
+drifting unchanged fields, which would violate HR-5.
+
+#### Scope
+
+- v1, single bill. Follows the Task 1.3 dedup/caching fix.
+- The tool validates the field name and the new value against the Bill schema.
+- Out of scope: correcting derived/computed values; batch multi-field correction.
+
+---
+
 ### Execution Order — Sprint 1
 
 ```
@@ -1207,6 +1241,41 @@ After each task:
 - [ ] Regression pass^3 = 1.00
 - [ ] Manual: chatbot answers "vale a pena painel solar pra minha casa em Maricá?" with: recommended kWp, monthly generation, payback year, sensitivity to tariff inflation
 - [ ] v1 tag created: `git tag v1.0.0`
+
+---
+
+## Backlog (v2)
+
+Concrete future work explicitly deferred past v1. Each entry below was flagged
+during v1 build because it would expand locked v1 scope (HR-2). Kept here so
+the rationale survives the gap between sprints and v2 planning.
+
+---
+
+### Multi-bill storage and comparison
+
+**Status:** Deferred — v2 (expands locked v1 single-bill scope; HR-2)
+**Depends on:** Task 1.4 (bill_store) for cross-session storage
+
+#### Goal
+
+Store multiple parsed bills and let the agent compare them (month-over-month
+consumption and cost deltas).
+
+#### Key concerns when scheduled
+
+- Token budget (HR-7): N bills in context each turn is costly — cap count or
+  store compressed per-bill summaries, not full ParseResults.
+- Bill identity: reference by period; handle duplicate periods.
+- Durable cross-session comparison needs bill_store (Task 1.4); within-session
+  can use the session collection.
+- Comparison is new analysis with its own HR-5 surface — compute deltas from
+  stored values, never invent them.
+
+#### Readiness
+
+The Task 1.3 dedup fix stores bills in a session collection shape, so this is
+not structurally blocked when scheduled.
 
 ---
 
