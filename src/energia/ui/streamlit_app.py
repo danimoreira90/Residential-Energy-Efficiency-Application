@@ -1,6 +1,7 @@
 """Streamlit chat UI — entry point for `uv run streamlit run src/energia/ui/streamlit_app.py`."""
 import uuid
-from typing import Any
+from collections.abc import MutableMapping
+from typing import Any, cast
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -45,6 +46,15 @@ def _normalize_media_type(mime: str) -> str:
     return _MIME_OVERRIDES.get(mime, mime)
 
 
+def _bump_uploader_key(session_state: MutableMapping[str, Any]) -> None:
+    """Increment the file_uploader key so the next render instantiates a fresh
+    empty widget. Initializes to 0 first if the key is missing — so the post-
+    bump value lands at 1, not 0, on the first reset (a 0 result would collide
+    with the bootstrap value and Streamlit would keep the file).
+    """
+    session_state["uploader_key"] = int(session_state.get("uploader_key", 0)) + 1
+
+
 def _bootstrap_session() -> None:
     """Initialise all required st.session_state keys on first page load."""
     if "session_id" not in st.session_state:
@@ -59,6 +69,8 @@ def _bootstrap_session() -> None:
         st.session_state["messages"] = []
     if "budget_cb" not in st.session_state:
         st.session_state["budget_cb"] = TokenBudgetCallback()
+    if "uploader_key" not in st.session_state:
+        st.session_state["uploader_key"] = 0
 
 
 def _render_history() -> None:
@@ -118,27 +130,25 @@ _bootstrap_session()
 _render_history()
 
 # Bill image upload — populated into pending_bill_image on the next user turn.
-# Streamlit's file_uploader retains the file across reruns; dedup via the
-# upload's stable file_id (with name+size as fallback) so the same image is
-# not re-injected on every subsequent chat turn.
+# The widget's key is suffixed with session_state["uploader_key"] so bumping
+# that counter (via _bump_uploader_key) instantiates a fresh empty widget on
+# the next render. That is how we reset the file after a sent message that
+# carried an upload — no separate dedup tracking is needed because each turn's
+# widget is its own fresh instance from Streamlit's point of view.
 uploaded_file = st.file_uploader(
     "Anexe a foto da conta de luz (JPG, PNG, GIF, WebP):",
     type=["jpg", "jpeg", "png", "gif", "webp"],
+    key=f"bill_uploader_{st.session_state['uploader_key']}",
 )
 
 bill_image_to_send: BillImageRef | None = None
-pending_upload_key: Any = None
+upload_consumed_this_turn = False
 if uploaded_file is not None:
-    upload_key: Any = getattr(uploaded_file, "file_id", None) or (
-        uploaded_file.name,
-        uploaded_file.size,
-    )
-    if st.session_state.get("consumed_bill_upload_key") != upload_key:
-        bill_image_to_send = {
-            "image_bytes": uploaded_file.getvalue(),
-            "media_type": _normalize_media_type(uploaded_file.type or ""),
-        }
-        pending_upload_key = upload_key
+    bill_image_to_send = {
+        "image_bytes": uploaded_file.getvalue(),
+        "media_type": _normalize_media_type(uploaded_file.type or ""),
+    }
+    upload_consumed_this_turn = True
 
 if user_input := st.chat_input("Olá! Como posso ajudar com sua conta de energia?"):
     st.session_state["messages"].append({"role": "user", "content": user_input})
@@ -159,11 +169,6 @@ if user_input := st.chat_input("Olá! Como posso ajudar com sua conta de energia
         bill_image=bill_image_to_send,
     )
 
-    # Mark this upload consumed after handle_message returns — success or
-    # budget-exceeded. The user clears or replaces the file to retry.
-    if pending_upload_key is not None:
-        st.session_state["consumed_bill_upload_key"] = pending_upload_key
-
     st.session_state["messages"].append({"role": "assistant", "content": ai_content})
     with st.chat_message("assistant"):
         st.markdown(ai_content)
@@ -179,3 +184,19 @@ if user_input := st.chat_input("Olá! Como posso ajudar com sua conta de energia
             tokens_in=tokens_in,
             tokens_out=tokens_used - tokens_in,
         )
+
+    # Reset the file_uploader iff this turn was a real chat_input submission
+    # AND it carried an upload. A user who attached a file but has not yet
+    # sent a message never reaches this branch — their file persists across
+    # reruns until they actually send. Both success and BillParseError exit
+    # the parse_bill tool with pending_bill_image cleared; the widget reset
+    # then synchronizes the UI state with that internal consumption, so the
+    # user sees an empty uploader and can re-upload to retry (failure) or
+    # move on (success).
+    if upload_consumed_this_turn:
+        # st.session_state is SessionStateProxy at type-check time; it behaves
+        # as a string-keyed mutable mapping at runtime. The cast bridges the
+        # invariant Key-type gap so the helper's MutableMapping[str, Any]
+        # signature stays clean for unit tests that pass real dicts.
+        _bump_uploader_key(cast(MutableMapping[str, Any], st.session_state))
+        st.rerun()
