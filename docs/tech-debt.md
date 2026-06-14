@@ -7,6 +7,33 @@ Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
 
+## TD-013: test_graph.py edited under feature/conversation-memory — HR-4 audit trail
+
+**What.** All four `GRAPH.invoke(...)` call sites in `tests/chat/test_graph.py`
+gained a `config={"configurable": {"thread_id": "..."}}` keyword argument:
+
+- `test_graph_runs_single_turn_with_no_tool_calls` → `thread_id="test-conv-single"`
+- `test_graph_runs_tool_use_loop` → `thread_id="test-conv-tools"`
+- `test_graph_accumulates_tokens_across_turns` → `thread_id="test-conv-tokens"`
+- `test_graph_handles_tool_error_gracefully` → `thread_id="test-conv-err"`
+
+No assertions were softened, no test logic was changed, no skips or xfails were
+added. The edit is purely mechanical: `feature/conversation-memory` compiled the
+chat graph with an in-process `MemorySaver` checkpointer (ADR-002 / PLAN:474),
+which makes `configurable.thread_id` a required argument on every `invoke`.
+Distinct thread_ids per test keep MemorySaver's per-thread state isolated so
+the existing assertions continue to exercise the same per-turn behaviour they
+always did.
+
+**Why introduced.** This is an HR-4 process record, not deferred work. Daniel
+explicitly approved the edit before implementation. No existing assertion was
+weakened — only the now-mandatory config kwarg was added at each call site.
+
+**Resolution target.** Already resolved — recorded here as the required HR-4
+audit trail entry.
+
+---
+
 ## TD-012: test_smoke.py edited under Task 1.3 Stage B — HR-4 audit trail
 
 **What.** `tests/test_smoke.py::test_import_chat_tools` was modified. The

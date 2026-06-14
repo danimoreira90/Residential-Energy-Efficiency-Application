@@ -27,6 +27,7 @@ NOT the "at least one pass in k tries" definition used in some ML papers.
 from __future__ import annotations
 
 import json
+import uuid
 from math import ceil
 from pathlib import Path
 from typing import Any
@@ -158,13 +159,19 @@ def run_example(example: EvalExample) -> ExampleResult:
         for msg in example.input_messages
         if msg.role == "user"
     ]
+    # Unique thread_id per attempt: pass@3 reruns the same example three times,
+    # and the compiled graph now ships a MemorySaver checkpointer. Reusing one
+    # thread_id would replay the previous attempt's restored history and
+    # contaminate scoring.
+    thread_id = f"eval-{example.name}-{uuid.uuid4()}"
     state: Any = GRAPH.invoke(
         {
             "messages": messages,
             "user_id": "eval-runner",
             "conversation_id": f"eval-{example.name}",
             "tokens_used": 0,
-        }
+        },
+        config={"configurable": {"thread_id": thread_id}},
     )
 
     tool_calls: list[ToolCallRecord] = []

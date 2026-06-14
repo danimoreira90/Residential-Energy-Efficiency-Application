@@ -31,7 +31,10 @@ def test_graph_runs_single_turn_with_no_tool_calls(mocker: Any) -> None:
 
     from energia.chat.graph import GRAPH
 
-    result = GRAPH.invoke(_make_state([HumanMessage(content="Oi")]))
+    result = GRAPH.invoke(
+        _make_state([HumanMessage(content="Oi")]),
+        config={"configurable": {"thread_id": "test-conv-single"}},
+    )
 
     assert isinstance(result["messages"][-1], AIMessage)
     assert result["messages"][-1].content == "Olá! Posso ajudar."
@@ -55,7 +58,10 @@ def test_graph_runs_tool_use_loop(mocker: Any) -> None:
 
     from energia.chat.graph import GRAPH
 
-    result = GRAPH.invoke(_make_state([HumanMessage(content="Me chama de Daniel")]))
+    result = GRAPH.invoke(
+        _make_state([HumanMessage(content="Me chama de Daniel")]),
+        config={"configurable": {"thread_id": "test-conv-tools"}},
+    )
 
     assert mock_llm.invoke.call_count == 2
     assert isinstance(result["messages"][-1], AIMessage)
@@ -74,7 +80,10 @@ def test_graph_accumulates_tokens_across_turns(mocker: Any) -> None:
 
     from energia.chat.graph import GRAPH
 
-    result = GRAPH.invoke(_make_state([HumanMessage(content="Primeira mensagem")], tokens_used=50))
+    result = GRAPH.invoke(
+        _make_state([HumanMessage(content="Primeira mensagem")], tokens_used=50),
+        config={"configurable": {"thread_id": "test-conv-tokens"}},
+    )
     # 50 pre-existing + (100+50) from this turn
     assert result["tokens_used"] == 200
 
@@ -104,7 +113,10 @@ def test_graph_handles_tool_error_gracefully(mocker: Any) -> None:
 
     from energia.chat.graph import GRAPH
 
-    result = GRAPH.invoke(_make_state([HumanMessage(content="Trigger error")]))
+    result = GRAPH.invoke(
+        _make_state([HumanMessage(content="Trigger error")]),
+        config={"configurable": {"thread_id": "test-conv-err"}},
+    )
 
     # Graph must not raise — ToolNode catches the error via handle_tool_errors=True
     assert isinstance(result["messages"][-1], AIMessage)

@@ -107,7 +107,13 @@ def handle_message(
     if bill_image is not None:
         graph_state["pending_bill_image"] = bill_image
     try:
-        result = GRAPH.invoke(graph_state, config={"callbacks": [audit_cb, budget_cb]})
+        result = GRAPH.invoke(
+            graph_state,
+            config={
+                "callbacks": [audit_cb, budget_cb],
+                "configurable": {"thread_id": conversation_id},
+            },
+        )
         ai_content: str = str(result["messages"][-1].content)
         tokens_used: int = int(result["tokens_used"])
         tokens_in: int = int(result["tokens_in"])
