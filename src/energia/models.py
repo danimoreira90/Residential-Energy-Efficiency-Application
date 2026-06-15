@@ -43,7 +43,13 @@ class Bill(BaseModel):
         description="Verde, Amarela, Vermelha 1, Vermelha 2, or null",
     )
     total_brl: Decimal = Field(description="Total R$ to pay")
-    composition: BillComposition
+    composition: BillComposition | None = Field(
+        default=None,
+        description=(
+            "All-or-nothing fiscal breakdown. Present and complete, or None when "
+            "the fiscal table is unreadable / partial. Never invented (HR-5)."
+        ),
+    )
     confidence: float = Field(ge=0, le=1, description="Vision extraction confidence, 0-1")
 
 

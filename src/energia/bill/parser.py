@@ -7,9 +7,10 @@ import re
 from typing import Any, Final
 
 import anthropic
+from pydantic import ValidationError
 
 from energia.config import settings
-from energia.models import Bill, ParseResult
+from energia.models import Bill, BillComposition, ParseResult
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,12 @@ e extraia os dados no formato JSON abaixo. Retorne APENAS o objeto JSON, sem tex
   "confidence": <0.0 a 1.0>
 }
 
-Se não conseguir ler algum campo com certeza, reduza o valor de confidence.\
+Se não conseguir ler algum campo do cabeçalho com certeza, reduza o valor de confidence.
+
+Se a tabela fiscal (TUSD/TE/ICMS) não estiver legível ou estiver parcial, retorne \
+"composition": null e NÃO reduza o confidence por causa disso — o cabeçalho \
+(consumo, total, distribuidora, período) é o que importa para uso residencial. \
+NUNCA invente valores fiscais.\
 """
 
 _client: anthropic.Anthropic | None = None
@@ -126,6 +132,31 @@ def _parse_response(response: Any) -> Bill:
 
     try:
         data = json.loads(match.group())
+    except Exception as exc:
+        raise BillParseError(f"bill validation failed: {exc}") from exc
+
+    _degrade_composition(data)
+
+    try:
         return Bill.model_validate(data)
     except Exception as exc:
         raise BillParseError(f"bill validation failed: {exc}") from exc
+
+
+def _degrade_composition(data: dict[str, Any]) -> None:
+    """Drop composition to None unless the fiscal block validates as a whole.
+
+    composition is all-or-nothing: present and complete (tusd + te + icms at
+    minimum) or None. A null/missing/partial/otherwise-invalid composition
+    block is set to None — HR-5: dropping an unreadable reading is not the
+    same as inventing values. Header fields stay required at the Bill layer,
+    so unreadable headers still fail closed via BillParseError downstream.
+    """
+    comp_raw = data.get("composition")
+    if comp_raw is None:
+        data["composition"] = None
+        return
+    try:
+        BillComposition.model_validate(comp_raw)
+    except ValidationError:
+        data["composition"] = None

@@ -7,6 +7,40 @@ Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
 
+## TD-014: test_models.py edited under quality/optional-bill-composition — HR-4 audit trail
+
+**What.** A single line was added to
+`tests/test_models.py::TestBill::test_bill_stores_amounts_as_decimal`:
+
+```python
+assert bill.composition is not None
+```
+
+inserted between the `bill.consumption_kwh` assertion and the
+`bill.composition.other` assertions. The new line narrows `bill.composition`
+from `BillComposition | None` (its model type as of this branch) back to
+`BillComposition` so the subsequent assertions remain type-safe under
+pyright. No existing assertion was modified, removed, or softened.
+
+**Why introduced.** The branch `quality/optional-bill-composition` makes
+`Bill.composition` optional (default `None`) so a bill with a legible header
+and an unreadable fiscal table can still parse — Grupo B1 residential solar
+sizing only needs header fields (consumption_kwh, total_brl, distributor,
+period). The TUSD/TE/ICMS breakdown is a Grupo A concern and is the part
+that intermittently breaks parses. The original test still constructs `Bill`
+via `_valid_bill()` which embeds a `BillComposition`, so runtime behaviour
+is unchanged; the added `assert ... is not None` is purely a static-type
+narrow.
+
+This is an HR-4 process record, not deferred work. Daniel explicitly
+approved the edit before implementation. No skip/xfail/skipif marker was
+added; only an additional positive assertion was inserted.
+
+**Resolution target.** Already resolved — recorded here as the required
+HR-4 audit trail entry.
+
+---
+
 ## TD-013: test_graph.py edited under feature/conversation-memory — HR-4 audit trail
 
 **What.** All four `GRAPH.invoke(...)` call sites in `tests/chat/test_graph.py`

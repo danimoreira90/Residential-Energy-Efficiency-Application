@@ -55,6 +55,7 @@ class TestBill:
         bill = Bill(**_valid_bill())
         assert isinstance(bill.total_brl, Decimal)
         assert isinstance(bill.consumption_kwh, Decimal)
+        assert bill.composition is not None
         assert isinstance(bill.composition.other, Decimal)
         assert bill.composition.other == Decimal("0")
 
