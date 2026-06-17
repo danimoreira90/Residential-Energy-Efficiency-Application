@@ -9,6 +9,8 @@ from langgraph.graph.message import add_messages
 # annotation and rejects the stdlib variant before 3.12.
 from typing_extensions import TypedDict
 
+from energia.models import Bill
+
 
 class BillImageRef(TypedDict):
     """A pending bill image attached by the user via the Streamlit uploader.
@@ -29,3 +31,6 @@ class ChatState(TypedDict):
     tokens_used: int
     tokens_in: NotRequired[int]  # absent in legacy/test states; defaults to 0 in agent_node
     pending_bill_image: NotRequired[BillImageRef | None]  # set by UI; cleared by parse_bill tool
+    # Set by parse_bill success; consumed by correct_bill_field. Lives only in
+    # the in-process MemorySaver checkpoint (HR-2/HR-6 — never persisted to disk).
+    current_bill: NotRequired[Bill | None]

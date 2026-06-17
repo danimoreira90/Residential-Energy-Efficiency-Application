@@ -73,7 +73,13 @@ def parse_bill_tool(
         f"consumo {bill.consumption_kwh} kWh, total R$ {bill.total_brl}{confirm_note}."
     )
     msg = ToolMessage(content=narration, tool_call_id=tool_call_id)
-    return Command(update={"messages": [msg], "pending_bill_image": None})
+    return Command(
+        update={
+            "messages": [msg],
+            "pending_bill_image": None,
+            "current_bill": bill,
+        }
+    )
 
 
 register_tool(parse_bill_tool)  # type: ignore[arg-type]
