@@ -56,6 +56,12 @@ def _make_bill() -> Bill:
 
 
 def _make_state(current_bill: Bill | None) -> dict[str, Any]:
+    """current_bill lives in the checkpoint as a JSON-primitive dict.
+
+    Producers (parse_bill, correct_bill_field) write model_dump(mode="json").
+    Consumers rehydrate via Bill.model_validate(...). This helper mirrors that
+    contract — tests inject the dict form, not the Bill object.
+    """
     state: dict[str, Any] = {
         "messages": [],
         "user_id": "u1",
@@ -64,7 +70,7 @@ def _make_state(current_bill: Bill | None) -> dict[str, Any]:
         "tokens_in": 0,
     }
     if current_bill is not None:
-        state["current_bill"] = current_bill
+        state["current_bill"] = current_bill.model_dump(mode="json")
     return state
 
 
@@ -132,7 +138,10 @@ def test_correct_with_no_current_bill_returns_graceful_message() -> None:
 
 
 def test_correct_distributor_changes_only_that_field() -> None:
-    """All non-target fields byte-identical to the original Bill (HR-5)."""
+    """All non-target fields byte-identical to the original Bill (HR-5).
+
+    Both sides compared as JSON-primitive dicts to match the in-checkpoint form.
+    """
     tool = _get_correct_tool()
     bill = _make_bill()
     state = _make_state(current_bill=bill)
@@ -143,12 +152,13 @@ def test_correct_distributor_changes_only_that_field() -> None:
 
     assert isinstance(result, Command)
     update: dict[str, Any] = result.update  # type: ignore[assignment]
-    new_bill: Any = update["current_bill"]
-    assert isinstance(new_bill, Bill)
+    stored: Any = update["current_bill"]
+    assert isinstance(stored, dict)
+    new_bill = Bill.model_validate(stored)
     assert new_bill.distributor == "Light SA"
 
-    original = bill.model_dump()
-    updated = new_bill.model_dump()
+    original: dict[str, Any] = bill.model_dump(mode="json")
+    updated: dict[str, Any] = dict(cast(dict[str, Any], stored))
     original.pop("distributor")
     updated.pop("distributor")
     assert original == updated, (
@@ -168,8 +178,9 @@ def test_correct_installation_number_is_a_string_not_normalized() -> None:
     )
 
     update: dict[str, Any] = result.update  # type: ignore[assignment]
-    new_bill: Any = update["current_bill"]
-    assert isinstance(new_bill, Bill)
+    stored: Any = update["current_bill"]
+    assert isinstance(stored, dict)
+    new_bill = Bill.model_validate(stored)
     assert new_bill.installation_number == "123456789"
     assert new_bill.distributor == bill.distributor
     assert new_bill.consumption_kwh == bill.consumption_kwh
@@ -185,8 +196,9 @@ def test_correct_period_to_valid_format_succeeds() -> None:
     result = _invoke(tool, state, field="period", value="2026-04", call_id="c-p-ok")
 
     update: dict[str, Any] = result.update  # type: ignore[assignment]
-    new_bill: Any = update["current_bill"]
-    assert isinstance(new_bill, Bill)
+    stored: Any = update["current_bill"]
+    assert isinstance(stored, dict)
+    new_bill = Bill.model_validate(stored)
     assert new_bill.period == "2026-04"
 
 
@@ -221,8 +233,9 @@ def test_correct_total_brl_normalizes_pt_br_formatting(
     )
 
     update: dict[str, Any] = result.update  # type: ignore[assignment]
-    new_bill: Any = update["current_bill"]
-    assert isinstance(new_bill, Bill)
+    stored: Any = update["current_bill"]
+    assert isinstance(stored, dict)
+    new_bill = Bill.model_validate(stored)
     assert new_bill.total_brl == expected, (
         f"PT-BR normalization failed for {raw!r}: "
         f"got {new_bill.total_brl!r}, expected {expected!r}"
@@ -250,8 +263,9 @@ def test_correct_consumption_kwh_strips_unit_and_normalizes(
     )
 
     update: dict[str, Any] = result.update  # type: ignore[assignment]
-    new_bill: Any = update["current_bill"]
-    assert isinstance(new_bill, Bill)
+    stored: Any = update["current_bill"]
+    assert isinstance(stored, dict)
+    new_bill = Bill.model_validate(stored)
     assert new_bill.consumption_kwh == expected
 
 

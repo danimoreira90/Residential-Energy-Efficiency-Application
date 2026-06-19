@@ -103,14 +103,17 @@ def correct_bill_field(
             }
         )
 
-    candidate: dict[str, Any] = current_bill.model_dump()
+    # current_bill is a JSON-primitive dict (see ChatState docstring) — copy and
+    # overwrite the one named field, then re-validate the whole as a Bill so
+    # type/regex/Decimal checks fire and HR-5 invariants stay intact.
+    candidate: dict[str, Any] = dict(current_bill)
     new_value: Any = (
         _normalize_numeric_ptbr(value) if field in _NUMERIC_FIELDS else value
     )
     candidate[field] = new_value
 
     try:
-        new_bill = Bill.model_validate(candidate)
+        validated = Bill.model_validate(candidate)
     except ValidationError as exc:
         err = (
             f"Valor inválido para o campo '{field}': {value!r}. "
@@ -123,8 +126,8 @@ def correct_bill_field(
             }
         )
 
-    old_display = getattr(current_bill, field)
-    new_display = getattr(new_bill, field)
+    old_display = current_bill.get(field)
+    new_display = getattr(validated, field)
     confirmation = (
         f"Campo '{field}' atualizado: {old_display} -> {new_display}. "
         "Demais campos preservados."
@@ -134,7 +137,8 @@ def correct_bill_field(
             "messages": [
                 ToolMessage(content=confirmation, tool_call_id=tool_call_id),
             ],
-            "current_bill": new_bill,
+            # Write back as JSON-primitive dict to match the ChatState contract.
+            "current_bill": validated.model_dump(mode="json"),
         }
     )
 

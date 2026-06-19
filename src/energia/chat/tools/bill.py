@@ -77,7 +77,10 @@ def parse_bill_tool(
         update={
             "messages": [msg],
             "pending_bill_image": None,
-            "current_bill": bill,
+            # Stored as JSON-primitive dict — never a Bill instance — so the
+            # MemorySaver checkpoint stays serializer-safe. Consumers
+            # rehydrate via Bill.model_validate(...).
+            "current_bill": bill.model_dump(mode="json"),
         }
     )
 

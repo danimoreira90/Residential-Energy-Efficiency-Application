@@ -7,6 +7,68 @@ Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
 
+## TD-015: current_bill stored as JSON-primitive dict + langgraph allowed_objects deprecation deferred
+
+**What.** Two coupled changes on the `feature/hitl-bill-correction` branch:
+
+1. **Production contract change.** `ChatState.current_bill` was retyped from
+   `NotRequired[Bill | None]` to `NotRequired[dict[str, Any] | None]`. The
+   `parse_bill` success path now writes `bill.model_dump(mode="json")` and
+   `correct_bill_field` rehydrates via `Bill.model_validate(...)` and writes
+   back `validated.model_dump(mode="json")`. The checkpoint never holds a
+   domain object (no Bill, Decimal, or date instances crossing the
+   serialization boundary). HR-5 surgical-update semantics are intact:
+   `candidate = dict(current_bill); candidate[field] = new_value` followed by
+   `Bill.model_validate(candidate)` proves the whole is well-formed before
+   write-back. HR-2 / HR-6 lifecycle unchanged — dict still lives only in the
+   in-process MemorySaver, never persisted, never logged.
+
+2. **HR-4 test edits (approved before implementation).**
+   - `tests/chat/test_bill_persistence.py` — two tests changed their type
+     assertions from "Bill instance" to "dict that rehydrates to the same Bill
+     via `Bill.model_validate`". The recoverable value is asserted, not the
+     in-channel object type. No assertion was softened; no test was skipped
+     or marked xfail; the contract is strictly stronger because it now
+     verifies both shape AND content.
+   - `tests/chat/tools/test_correct.py` — the `_make_state` helper now stores
+     `current_bill.model_dump(mode="json")` so injected fixtures mirror the
+     production contract. Each success-path assertion that previously did
+     `isinstance(new_bill, Bill)` now rehydrates the dict via
+     `Bill.model_validate(stored)` before asserting on typed values. The
+     byte-identical guarantee in
+     `test_correct_distributor_changes_only_that_field` is now a dict-on-dict
+     comparison via `model_dump(mode="json")` on both sides — same invariant.
+
+**Why introduced.** A Streamlit run printed:
+`Deserializing unregistered type energia.models.Bill from checkpoint. This
+will be blocked in a future version.` Storing a Bill instance in the
+checkpoint relies on LangGraph's `JsonPlusSerializer` ext-type path for
+arbitrary Pydantic v2 models, which the langchain-core deprecation flow has
+warned will be locked down. Routing the value through `model_dump(mode="json")`
+makes the checkpoint primitive-only and removes the dependency on
+serializer-version internals.
+
+**Related deferral — `allowed_objects` pending-deprecation.** Pytest also
+emits a separate `LangChainPendingDeprecationWarning` from
+`langgraph/checkpoint/serde/jsonplus.py:45` where `LC_REVIVER = Reviver()` is
+called at module import time with no `allowed_objects` argument. langchain-core
+1.3.3 warns and defaults to `"core"`. The correct narrower value for our
+state would be `"messages"` (we only persist LangChain `BaseMessage`
+subclasses + primitives). At langgraph 1.1.10, `MemorySaver` exposes no clean
+way to pass a custom Reviver — `LC_REVIVER` is a module-level constant in
+jsonplus.py, not parametrized through `JsonPlusSerializer.__init__`. Setting
+it would require monkey-patching the module constant (fragile, version-pinned)
+or filtering the warning category (cosmetic only). A pending-deprecation is
+upstream's promise to warn before action; deferring is safe.
+
+**Resolution target.** Code change already resolved on this branch. Revisit
+the `allowed_objects` warning when langgraph exposes a public knob for the
+serializer's reviver, or when langchain-core flips the default away from
+`"core"` and breaks message round-trip. Both HR-4 entries are audit-trail
+only — Daniel approved both edits before implementation; no further action.
+
+---
+
 ## TD-014: test_models.py edited under quality/optional-bill-composition — HR-4 audit trail
 
 **What.** A single line was added to

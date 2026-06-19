@@ -77,7 +77,13 @@ def _invoke_parse_bill(tool: Any, state: dict[str, Any], call_id: str) -> Any:
 
 
 def test_parse_bill_success_populates_current_bill_in_state(mocker: Any) -> None:
-    """Success path: Command update carries the parsed Bill in current_bill."""
+    """Success path: Command update carries the parsed Bill as a JSON-primitive dict.
+
+    The checkpoint stores model_dump(mode="json") so no Decimal/date objects
+    cross the serialization boundary (kills the LangChain unregistered-type
+    deprecation). The contract is "the recoverable value", asserted via
+    Bill.model_validate round-trip — not in-channel object identity.
+    """
     bill = _make_bill()
     parse_result = ParseResult(bill=bill, needs_user_confirmation=False)
     mocker.patch(
@@ -99,9 +105,14 @@ def test_parse_bill_success_populates_current_bill_in_state(mocker: Any) -> None
         "parse_bill success path must add current_bill to its Command update "
         "so the bill survives across turns (Task 1.8 Part A)"
     )
-    assert update["current_bill"] is bill, (
-        "current_bill must be the same Bill object returned by parse_bill_image — "
-        "the tool does not re-emit or copy fields (HR-5)"
+    stored: Any = update["current_bill"]
+    assert isinstance(stored, dict), (
+        "current_bill must be stored as a JSON-primitive dict — NOT a Bill "
+        f"instance — to keep the checkpoint serializer-safe; got {type(stored).__name__}"
+    )
+    rehydrated = Bill.model_validate(stored)
+    assert rehydrated == bill, (
+        "the stored dict must round-trip to the same Bill via Bill.model_validate"
     )
 
 
@@ -146,12 +157,12 @@ def test_parse_bill_no_attachment_does_not_populate_current_bill() -> None:
 
 
 def test_current_bill_survives_checkpoint_round_trip(mocker: Any) -> None:
-    """MemorySaver round-trip preserves Bill as a Bill instance, not a dict.
+    """MemorySaver round-trip preserves the Bill as a JSON-primitive dict.
 
-    Gates the LangGraph default-serializer behavior for Pydantic models on the
-    current_bill channel. If this fails after GREEN, fall back to storing
-    model_dump() dict in bill.py + rehydrate via Bill.model_validate() in
-    correct_bill_field. Do not silently accept a degraded type.
+    The contract is "asserts the recoverable value via Bill.model_validate" — not
+    the checkpoint's internal type. Storing model_dump(mode="json") instead of a
+    Bill instance keeps the checkpoint primitive-only and avoids LangChain's
+    unregistered-type deprecation warning.
     """
     bill = _make_bill()
     parse_result = ParseResult(bill=bill, needs_user_confirmation=False)
@@ -199,9 +210,11 @@ def test_current_bill_survives_checkpoint_round_trip(mocker: Any) -> None:
     assert stored is not None, (
         "current_bill must be persisted to the checkpoint after parse_bill success"
     )
-    assert isinstance(stored, Bill), (
-        f"Bill must round-trip as a Bill instance via the configured serializer; "
-        f"got {type(stored).__name__}. Fallback: store model_dump() dict instead."
+    assert isinstance(stored, dict), (
+        "current_bill must round-trip as a JSON-primitive dict (no Decimal/date "
+        f"objects across the serializer boundary); got {type(stored).__name__}"
     )
-    assert stored.distributor == "Enel Rio"
-    assert stored.consumption_kwh == Decimal("312.50")
+    rehydrated = Bill.model_validate(stored)
+    assert rehydrated == bill, "round-tripped dict must rehydrate to the same Bill"
+    assert rehydrated.distributor == "Enel Rio"
+    assert rehydrated.consumption_kwh == Decimal("312.50")

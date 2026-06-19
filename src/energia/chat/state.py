@@ -1,5 +1,5 @@
 """ChatState TypedDict — shared state threaded through every LangGraph node."""
-from typing import Annotated, NotRequired
+from typing import Annotated, Any, NotRequired
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
@@ -8,8 +8,6 @@ from langgraph.graph.message import add_messages
 # because Pydantic introspects ChatState via the parse_bill tool's InjectedState
 # annotation and rejects the stdlib variant before 3.12.
 from typing_extensions import TypedDict
-
-from energia.models import Bill
 
 
 class BillImageRef(TypedDict):
@@ -31,6 +29,10 @@ class ChatState(TypedDict):
     tokens_used: int
     tokens_in: NotRequired[int]  # absent in legacy/test states; defaults to 0 in agent_node
     pending_bill_image: NotRequired[BillImageRef | None]  # set by UI; cleared by parse_bill tool
-    # Set by parse_bill success; consumed by correct_bill_field. Lives only in
-    # the in-process MemorySaver checkpoint (HR-2/HR-6 — never persisted to disk).
-    current_bill: NotRequired[Bill | None]
+    # Set by parse_bill success; consumed by correct_bill_field. Stored as a
+    # JSON-primitive dict (Bill.model_dump(mode="json")) — NOT a Bill instance —
+    # so the MemorySaver checkpoint never holds Decimal/date or other domain
+    # objects whose deserialization LangChain will eventually block. Consumers
+    # rehydrate via Bill.model_validate(...). Lives only in the in-process
+    # MemorySaver checkpoint (HR-2/HR-6 — never persisted to disk).
+    current_bill: NotRequired[dict[str, Any] | None]
