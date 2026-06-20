@@ -29,14 +29,10 @@ decide.
 
 | Verdict     | Meaning                                                                      |
 |-------------|------------------------------------------------------------------------------|
-| `MATCH`     | Label and parsed value are both present and equal (Decimal compare for kWh/BRL). |
+| `MATCH`     | Label and parsed value are both present and equal. Numeric fields compare as `Decimal` (`"374" == "374.00"`). `installation_number` strips leading zeros on both sides (`"0006354013" == "000006354013"`). |
 | `MISS`      | Label has a value, parser returned nothing for that field (or the whole parse failed). |
 | `MISREAD`   | Label has a value, parser produced a different value.                        |
 | `INVENTION` | Label is `null` (not legibly on the bill), parser produced a value anyway. **HR-5 violation flag.** |
-
-For `composition` specifically, the label is one of `"present"` / `"absent"` /
-`null`. `"absent"` + parsed non-`None` is `INVENTION` (the parser fabricated a
-fiscal breakdown that wasn't legible).
 
 ## Label schema
 
@@ -49,8 +45,7 @@ JSONL — one bill per line:
   "installation_number": "<UC or null>",
   "period": "<YYYY-MM or null>",
   "consumption_kwh": "<numeric string or null>",
-  "total_brl": "<numeric string or null>",
-  "composition": "present" | "absent" | null
+  "total_brl": "<numeric string or null>"
 }
 ```
 
@@ -59,6 +54,11 @@ bother to label it". Treat the two cases as different and don't conflate them.
 Numeric fields are strings here so the loader's validator can reject typos
 before the eval runs; the harness compares them as `Decimal` so `"374"` and
 `"374.00"` are MATCH.
+
+> **Old labels with a `"composition"` key still load.** The composition field
+> was removed in TD-016 (residential / Grupo B doesn't use the TUSD/TE
+> breakdown). The loader uses Pydantic v2's default `extra="ignore"` so legacy
+> keys are silently dropped — no need to re-edit your `labels.jsonl`.
 
 ## Files in this directory
 

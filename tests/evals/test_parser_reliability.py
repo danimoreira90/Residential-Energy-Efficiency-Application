@@ -6,10 +6,11 @@ This file unit-tests the harness only:
 
 - Loader: BillLabel schema + JSONL loader (comments / blanks / bad period).
 - Scorer: MATCH / MISS / MISREAD / INVENTION + PARSE_FAILED, including the
-  Decimal normalization for kWh/BRL and the composition "present"/"absent"/None
-  matrix.
+  Decimal normalization for kWh/BRL and the leading-zero normalization for
+  installation_number.
 - Redaction (HR-6): installation_number's VALUE never appears in the in-memory
   FieldComparison record OR in the formatted console report — only the verdict.
+  Normalization runs in-flight and never leaks the UC.
 - End-to-end pipeline (the wiring test): parse_bill_image is MOCKED so no real
   vision API call happens; a temp labels file points at a temp PNG; the
   aggregate report counts match.
@@ -23,7 +24,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import pytest
 
@@ -76,12 +77,6 @@ def _make_bill(
     )
 
 
-def _make_composition() -> BillComposition:
-    return BillComposition(
-        tusd=Decimal("100"), te=Decimal("100"), icms=Decimal("50")
-    )
-
-
 def _make_label(
     *,
     image: str = "fake_bill.png",
@@ -90,7 +85,6 @@ def _make_label(
     period: str | None = _FAKE_PERIOD,
     consumption_kwh: str | None = "374",
     total_brl: str | None = "416.94",
-    composition: Literal["present", "absent"] | None = "present",
 ) -> BillLabel:
     return BillLabel(
         image=image,
@@ -99,7 +93,6 @@ def _make_label(
         period=period,
         consumption_kwh=consumption_kwh,
         total_brl=total_brl,
-        composition=composition,
     )
 
 
@@ -119,11 +112,9 @@ def test_load_labels_round_trips_two_fake_rows(tmp_path: Path) -> None:
     labels_path = tmp_path / "labels.jsonl"
     labels_path.write_text(
         '{"image":"a.png","distributor":"Fakedist","installation_number":"000000",'
-        '"period":"1999-01","consumption_kwh":"100","total_brl":"100.00",'
-        '"composition":"present"}\n'
+        '"period":"1999-01","consumption_kwh":"100","total_brl":"100.00"}\n'
         '{"image":"b.png","distributor":"Testco","installation_number":"999999",'
-        '"period":"2099-12","consumption_kwh":null,"total_brl":null,'
-        '"composition":"absent"}\n',
+        '"period":"2099-12","consumption_kwh":null,"total_brl":null}\n',
         encoding="utf-8",
     )
 
@@ -132,17 +123,34 @@ def test_load_labels_round_trips_two_fake_rows(tmp_path: Path) -> None:
     assert len(labels) == 2
     assert labels[0].image == "a.png"
     assert labels[0].distributor == "Fakedist"
-    assert labels[0].composition == "present"
     assert labels[1].consumption_kwh is None
-    assert labels[1].composition == "absent"
+    assert labels[1].total_brl is None
+
+
+def test_load_labels_ignores_legacy_composition_key(tmp_path: Path) -> None:
+    """Old labels.jsonl files with a 'composition' key still load — Pydantic v2's
+    default extra='ignore' drops unknown fields silently. Daniel does not have
+    to re-edit his labels file after the field was removed in TD-016."""
+    labels_path = tmp_path / "labels.jsonl"
+    labels_path.write_text(
+        '{"image":"a.png","distributor":"Fakedist","installation_number":"000000",'
+        '"period":"1999-01","consumption_kwh":"100","total_brl":"100.00",'
+        '"composition":"present"}\n',
+        encoding="utf-8",
+    )
+
+    labels = load_labels(labels_path)
+
+    assert len(labels) == 1
+    assert labels[0].image == "a.png"
+    assert not hasattr(labels[0], "composition")
 
 
 def test_load_labels_rejects_bad_period_format(tmp_path: Path) -> None:
     labels_path = tmp_path / "labels.jsonl"
     labels_path.write_text(
         '{"image":"a.png","distributor":"Fakedist","installation_number":"000000",'
-        '"period":"1999-13","consumption_kwh":"100","total_brl":"100.00",'
-        '"composition":"present"}\n',
+        '"period":"1999-13","consumption_kwh":"100","total_brl":"100.00"}\n',
         encoding="utf-8",
     )
 
@@ -156,8 +164,7 @@ def test_load_labels_skips_comments_and_empty_lines(tmp_path: Path) -> None:
         "# header comment\n"
         "\n"
         '{"image":"a.png","distributor":"Fakedist","installation_number":"000000",'
-        '"period":"1999-01","consumption_kwh":"100","total_brl":"100.00",'
-        '"composition":"present"}\n'
+        '"period":"1999-01","consumption_kwh":"100","total_brl":"100.00"}\n'
         "\n"
         "# trailing comment\n",
         encoding="utf-8",
@@ -169,27 +176,14 @@ def test_load_labels_skips_comments_and_empty_lines(tmp_path: Path) -> None:
     assert labels[0].image == "a.png"
 
 
-def test_load_labels_rejects_invalid_composition_literal(tmp_path: Path) -> None:
-    labels_path = tmp_path / "labels.jsonl"
-    labels_path.write_text(
-        '{"image":"a.png","distributor":"Fakedist","installation_number":"000000",'
-        '"period":"1999-01","consumption_kwh":"100","total_brl":"100.00",'
-        '"composition":"maybe"}\n',
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError):
-        load_labels(labels_path)
-
-
 # ---------------------------------------------------------------------------
 # Scorer — MATCH
 # ---------------------------------------------------------------------------
 
 
 def test_score_match_when_all_fields_equal() -> None:
-    bill = _make_bill(composition=_make_composition())
-    label = _make_label(composition="present")
+    bill = _make_bill()
+    label = _make_label()
 
     cmp = score_bill(bill=bill, label=label)
 
@@ -247,41 +241,6 @@ def test_score_invention_when_label_null_and_bill_has_value() -> None:
     cmp = score_bill(bill=bill, label=label)
 
     assert _verdict_for(cmp, "total_brl") == FieldVerdict.INVENTION
-
-
-@pytest.mark.parametrize(
-    "label_value,bill_has_composition,expected_verdict",
-    [
-        ("present", True, FieldVerdict.MATCH),
-        ("present", False, FieldVerdict.MISS),
-        ("absent", False, FieldVerdict.MATCH),
-        ("absent", True, FieldVerdict.INVENTION),
-    ],
-)
-def test_score_composition_present_vs_absent_matrix(
-    label_value: Literal["present", "absent"],
-    bill_has_composition: bool,
-    expected_verdict: FieldVerdict,
-) -> None:
-    """The 4-cell composition truth table the harness must enforce."""
-    bill = _make_bill(
-        composition=_make_composition() if bill_has_composition else None
-    )
-    label = _make_label(composition=label_value)
-
-    cmp = score_bill(bill=bill, label=label)
-
-    assert _verdict_for(cmp, "composition") == expected_verdict
-
-
-def test_score_composition_label_none_with_bill_value_is_invention() -> None:
-    """label composition null, bill has composition -> HR-5 INVENTION."""
-    bill = _make_bill(composition=_make_composition())
-    label = _make_label(composition=None)
-
-    cmp = score_bill(bill=bill, label=label)
-
-    assert _verdict_for(cmp, "composition") == FieldVerdict.INVENTION
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +301,43 @@ def test_format_report_never_emits_installation_number_value() -> None:
     assert "[redacted" in out, "redaction marker must be visible in output"
 
 
+def test_score_installation_number_normalizes_leading_zeros() -> None:
+    """Bills render the UC with different zero-padding widths (e.g. 0006354013
+    vs 000006354013) — same identifier. The scorer normalizes leading zeros on
+    both sides before comparison, so the verdict is MATCH.
+
+    Redaction continuity (HR-6) is pinned in the same test: even after
+    normalization, the FieldComparison record carries no raw UC and the
+    formatted report contains neither raw string.
+    """
+    parsed_uc = "0006354013"
+    expected_uc = "000006354013"
+    bill = _make_bill(installation_number=parsed_uc)
+    label = _make_label(installation_number=expected_uc)
+
+    cmp = score_bill(bill=bill, label=label)
+
+    uc_record: FieldComparison | None = next(
+        (f for f in cmp.fields if f.name == "installation_number"), None
+    )
+    assert uc_record is not None
+    assert uc_record.verdict == FieldVerdict.MATCH, (
+        "UC values that differ only in leading-zero padding must MATCH; "
+        f"got verdict={uc_record.verdict.value}"
+    )
+    assert uc_record.expected is None, (
+        "normalization must not leak the expected UC into the record (HR-6)"
+    )
+    assert uc_record.parsed is None, (
+        "normalization must not leak the parsed UC into the record (HR-6)"
+    )
+
+    report = ParserReliabilityReport(comparisons=[cmp])
+    out = format_report(report)
+    assert parsed_uc not in out, "normalized MATCH path leaked the parsed UC value"
+    assert expected_uc not in out, "normalized MATCH path leaked the expected UC value"
+
+
 # ---------------------------------------------------------------------------
 # Full pipeline — parse_bill_image MOCKED, no real vision call
 # ---------------------------------------------------------------------------
@@ -365,8 +361,7 @@ def test_run_parser_reliability_with_mocked_parse_bill_image(
     labels_path.write_text(
         '{"image":"fake_bill.png","distributor":"Fakedist",'
         '"installation_number":"000000","period":"1999-01",'
-        '"consumption_kwh":"374","total_brl":"100",'
-        '"composition":"present"}\n',
+        '"consumption_kwh":"374","total_brl":"100"}\n',
         encoding="utf-8",
     )
 
@@ -376,7 +371,6 @@ def test_run_parser_reliability_with_mocked_parse_bill_image(
         period="1999-01",
         consumption_kwh="374",
         total_brl="100",
-        composition=_make_composition(),
     )
 
     from energia.models import ParseResult
@@ -408,8 +402,7 @@ def test_run_parser_reliability_records_parse_failure(
     labels_path.write_text(
         '{"image":"fake_bill.png","distributor":"Fakedist",'
         '"installation_number":"000000","period":"1999-01",'
-        '"consumption_kwh":"100","total_brl":"100",'
-        '"composition":"present"}\n',
+        '"consumption_kwh":"100","total_brl":"100"}\n',
         encoding="utf-8",
     )
 
@@ -439,8 +432,7 @@ def test_run_parser_reliability_infers_jpeg_media_type(
     labels_path.write_text(
         '{"image":"fake_bill.jpg","distributor":"Fakedist",'
         '"installation_number":"000000","period":"1999-01",'
-        '"consumption_kwh":"100","total_brl":"100",'
-        '"composition":"present"}\n',
+        '"consumption_kwh":"100","total_brl":"100"}\n',
         encoding="utf-8",
     )
 

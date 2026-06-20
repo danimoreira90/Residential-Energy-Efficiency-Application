@@ -1,3 +1,3 @@
-{"image":"fake_bill_001.png","distributor":"Fakedist","installation_number":"000000","period":"1999-01","consumption_kwh":"100","total_brl":"100.00","composition":"present"}
-{"image":"fake_bill_002.jpg","distributor":"Test Distribuidora","installation_number":"999999","period":"2099-12","consumption_kwh":"200","total_brl":"200.00","composition":"absent"}
-{"image":"fake_bill_003.png","distributor":null,"installation_number":"111111","period":"2050-06","consumption_kwh":null,"total_brl":"50.00","composition":null}
+{"image":"fake_bill_001.png","distributor":"Fakedist","installation_number":"000000","period":"1999-01","consumption_kwh":"100","total_brl":"100.00"}
+{"image":"fake_bill_002.jpg","distributor":"Test Distribuidora","installation_number":"999999","period":"2099-12","consumption_kwh":"200","total_brl":"200.00"}
+{"image":"fake_bill_003.png","distributor":null,"installation_number":"111111","period":"2050-06","consumption_kwh":null,"total_brl":"50.00"}

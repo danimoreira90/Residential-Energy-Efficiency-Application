@@ -7,6 +7,79 @@ Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
 
+## TD-016: parser-reliability eval — composition dropped, installation_number normalized
+
+**What.** Two coupled changes on `feature/parser-reliability-cleanup` after the
+first real baseline run:
+
+1. **Drop `composition` from the eval.** `BillLabel.composition`, the
+   `_score_composition` function, and the composition entries in
+   `score_bill`'s field assembly + `_all_miss` were removed from
+   `src/energia/evals/parser_reliability.py`. The example labels
+   (`evals/parser_reliability/labels.example.jsonl`) and the README field
+   table / verdict notes were trimmed to match. Old `labels.jsonl` files
+   carrying a `"composition"` key still load — Pydantic v2's default
+   `extra="ignore"` drops unknown keys at `model_validate`. A new loader test
+   (`test_load_labels_ignores_legacy_composition_key`) pins that contract.
+
+2. **Normalize `installation_number` (UC) before comparing.** New helper
+   `_normalize_uc(v) = v.strip().lstrip("0") or "0"` strips leading zeros on
+   both expected and parsed values (Brazilian bill templates render the same
+   UC with different left-pad widths). Wired in via a dedicated `_score_uc`
+   so the normalization is scoped to that one field — like `Decimal` compare
+   on `consumption_kwh`/`total_brl`. Redaction is **unchanged**: the
+   normalized UCs never leave `_score_uc`'s scope; `_make_field` still drops
+   `expected`/`parsed` to `None` for `installation_number`, and
+   `_format_field_value` still emits `[redacted — HR-6]` regardless of
+   verdict. The two existing redaction tests stay green; the new test
+   (`test_score_installation_number_normalizes_leading_zeros`) pins both the
+   MATCH-after-normalization behavior and redaction continuity in one place.
+
+**Why introduced (composition).** First real baseline run showed composition
+degrades to `None` on every bill — the parser already structurally degrades
+the fiscal table to `None` when it's unreadable (TD-014), and Grupo B1
+residential sizing doesn't use the TUSD/TE breakdown anyway. Composition
+extraction is a Grupo A / tariff-swap concern. The eval was reporting a
+non-real "failure" on every run; dropping it removes noise and keeps the
+HR-5 guarantees on the fields that actually matter for v1 (distributor, UC,
+period, consumption, total).
+
+**Why introduced (UC normalization).** Same baseline run showed
+`installation_number` MISREAD on bills where the parsed value and the labeled
+value differ only in leading-zero padding (e.g. `0006354013` vs
+`000006354013`). The underlying UC is identical; the zero-pad width is
+template formatting. Exact string compare was over-strict.
+
+**HR-4 (approved before implementation).**
+`tests/evals/test_parser_reliability.py` edited:
+
+- *Deleted* (covered behavior that no longer exists):
+  `test_score_composition_present_vs_absent_matrix` (4 parametrized cases),
+  `test_score_composition_label_none_with_bill_value_is_invention`,
+  `test_load_labels_rejects_invalid_composition_literal`.
+- *Updated* (composition key/kwarg cleanup, no assertion softened, no logic
+  change): `test_load_labels_round_trips_two_fake_rows`,
+  `test_load_labels_rejects_bad_period_format`,
+  `test_load_labels_skips_comments_and_empty_lines`,
+  `test_score_match_when_all_fields_equal`,
+  `test_run_parser_reliability_with_mocked_parse_bill_image`,
+  `test_run_parser_reliability_records_parse_failure`,
+  `test_run_parser_reliability_infers_jpeg_media_type`.
+- *Added*: `test_load_labels_ignores_legacy_composition_key`,
+  `test_score_installation_number_normalizes_leading_zeros`.
+- Helpers: `_make_composition` removed (unused), `_make_label` loses the
+  `composition` kwarg, module docstring trimmed. `_make_bill` keeps its
+  `composition` kwarg because the underlying `Bill` model still has the
+  field (we did not change `models.py`).
+
+**Resolution target.** Both changes already resolved on this branch.
+Re-add composition scoring if a v2 feature uses the TUSD/TE breakdown
+(Grupo A audit, Tarifa Branca simulation comparing fiscal blocks, etc.).
+The UC normalization is permanent — it reflects how the data actually
+renders on Brazilian bills.
+
+---
+
 ## TD-015: current_bill stored as JSON-primitive dict + langgraph allowed_objects deprecation deferred
 
 **What.** Two coupled changes on the `feature/hitl-bill-correction` branch:

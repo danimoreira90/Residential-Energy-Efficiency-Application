@@ -9,23 +9,22 @@ Claude-vision against itself.
 Per-field verdicts
 ==================
 - ``MATCH``      — both label and parsed value are present and equal
-                   (Decimal compare for kWh/BRL: ``"374" == "374.00"``).
+                   (Decimal compare for kWh/BRL: ``"374" == "374.00"``;
+                    leading-zero-normalized compare for ``installation_number``:
+                    ``"0006354013" == "000006354013"``).
 - ``MISS``       — label has a value, parser returned nothing for that field
                    (or the whole parse failed with ``BillParseError``).
 - ``MISREAD``    — label has a value, parser produced a different value.
 - ``INVENTION``  — label says the field is not legibly on the bill (null),
                    parser produced a value anyway. **HR-5 violation flag.**
 
-For ``composition`` specifically, the label values are ``"present"`` /
-``"absent"`` / ``None``; ``"absent"`` + parsed ``None`` is MATCH, and
-``"absent"`` + parsed non-None is INVENTION (parser fabricated a fiscal
-breakdown that wasn't legible).
-
 HR-6 redaction
 ==============
 ``installation_number`` is PII (UC). Its value is NEVER written into the
 ``FieldComparison`` record or surfaced in the console report — only the
-verdict. Other fields may carry values for debugging.
+verdict. The UC normalization that powers the leading-zero compare runs
+in-flight inside ``_score_uc``; normalized values never leave that scope.
+Other fields may carry values for debugging.
 """
 from __future__ import annotations
 
@@ -33,7 +32,7 @@ import json
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
-from typing import Final, Literal
+from typing import Final
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -84,9 +83,9 @@ class BillLabel(BaseModel):
     """Ground-truth label for a single bill image.
 
     A field is ``None`` when the value is not legibly on the bill — that's
-    different from "we didn't bother to label it". ``composition`` is
-    classified as ``"present"`` (fiscal block legible), ``"absent"`` (table
-    unreadable or missing), or ``None`` (not assessable at all).
+    different from "we didn't bother to label it". Old labels with a
+    ``"composition"`` key still load: Pydantic v2's default is
+    ``extra="ignore"`` so unknown keys are silently dropped.
     """
 
     image: str = Field(description="Filename relative to bills_dir")
@@ -97,7 +96,6 @@ class BillLabel(BaseModel):
     )
     consumption_kwh: str | None = None
     total_brl: str | None = None
-    composition: Literal["present", "absent"] | None = None
 
     @field_validator("consumption_kwh", "total_brl")
     @classmethod
@@ -219,6 +217,40 @@ def _score_string(
     )
 
 
+def _normalize_uc(value: str | None) -> str | None:
+    """Strip leading zeros from a UC string.
+
+    Brazilian bill templates render the same UC with different left-pad widths
+    (``0006354013`` vs ``000006354013``). The number is identical; the padding
+    is formatting. ``"0"`` (all-zeros edge case) is preserved as ``"0"`` so a
+    fabricated-data test of all-zero values doesn't collapse to an empty string.
+    """
+    if value is None:
+        return None
+    return value.strip().lstrip("0") or "0"
+
+
+def _score_uc(expected: str | None, parsed: str) -> FieldComparison:
+    """installation_number scorer.
+
+    Compares leading-zero-normalized UCs but emits a FieldComparison via
+    ``_make_field``, which already enforces HR-6 redaction (expected/parsed
+    forced to None for the installation_number name). The normalized values
+    never escape this function's scope.
+    """
+    if expected is None:
+        return _make_field(
+            "installation_number", FieldVerdict.INVENTION, expected=None, parsed=parsed
+        )
+    if _normalize_uc(expected) == _normalize_uc(parsed):
+        return _make_field(
+            "installation_number", FieldVerdict.MATCH, expected=expected, parsed=parsed
+        )
+    return _make_field(
+        "installation_number", FieldVerdict.MISREAD, expected=expected, parsed=parsed
+    )
+
+
 def _score_decimal(
     name: str, expected: str | None, parsed: Decimal
 ) -> FieldComparison:
@@ -235,25 +267,6 @@ def _score_decimal(
     )
 
 
-def _score_composition(
-    expected: Literal["present", "absent"] | None, bill: Bill
-) -> FieldComparison:
-    parsed_present = bill.composition is not None
-    parsed_display = "present" if parsed_present else "absent"
-    if expected is None:
-        verdict = FieldVerdict.MATCH if not parsed_present else FieldVerdict.INVENTION
-    elif expected == "present":
-        verdict = FieldVerdict.MATCH if parsed_present else FieldVerdict.MISS
-    else:  # "absent"
-        verdict = FieldVerdict.MATCH if not parsed_present else FieldVerdict.INVENTION
-    return _make_field(
-        "composition",
-        verdict,
-        expected=expected,
-        parsed=parsed_display,
-    )
-
-
 def _all_miss(label: BillLabel) -> list[FieldComparison]:
     fields: list[FieldComparison] = []
     for name in _SCORED_STRING_FIELDS:
@@ -262,14 +275,6 @@ def _all_miss(label: BillLabel) -> list[FieldComparison]:
     for name in _SCORED_DECIMAL_FIELDS:
         expected = getattr(label, name)
         fields.append(_make_field(name, FieldVerdict.MISS, expected=expected))
-    fields.append(
-        _make_field(
-            "composition",
-            FieldVerdict.MISS,
-            expected=label.composition,
-            parsed=None,
-        )
-    )
     return fields
 
 
@@ -279,17 +284,22 @@ def score_bill(*, bill: Bill | None, label: BillLabel) -> BillComparison:
     bill=None signals parse_bill_image raised; every field is MISS in that
     case (the parser produced no data at all, regardless of what the label
     said). HR-5 INVENTION detection only fires when a Bill exists and a label
-    field is null.
+    field is null. installation_number is routed through ``_score_uc`` which
+    normalizes leading zeros; other strings go through plain ``_score_string``.
     """
     if bill is None:
         return BillComparison(image=label.image, parse_failed=True, fields=_all_miss(label))
 
     fields: list[FieldComparison] = []
     for name in _SCORED_STRING_FIELDS:
-        fields.append(_score_string(name, getattr(label, name), getattr(bill, name)))
+        expected = getattr(label, name)
+        parsed = getattr(bill, name)
+        if name == "installation_number":
+            fields.append(_score_uc(expected, parsed))
+        else:
+            fields.append(_score_string(name, expected, parsed))
     for name in _SCORED_DECIMAL_FIELDS:
         fields.append(_score_decimal(name, getattr(label, name), getattr(bill, name)))
-    fields.append(_score_composition(label.composition, bill))
 
     return BillComparison(image=label.image, parse_failed=False, fields=fields)
 
