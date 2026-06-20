@@ -7,9 +7,21 @@ Design (Option A — InjectedState):
   clears pending_bill_image via update={"pending_bill_image": None}.
 - The structural guarantee (HR-6) is that the LLM cannot synthesize bill bytes
   in a tool-call JSON arg — they never appear in the LLM-visible schema.
+
+Hash-cache (Task 1.4):
+- Before calling the vision API, we hash the image bytes with SHA-256 and
+  consult ``bill_store.find_by_hash`` for the (user_id, hash) pair. A hit
+  returns the previously-parsed Bill, skipping the API call entirely. A miss
+  falls through to parse_bill_image then ``bill_store.insert``. Insert
+  failures do not break the response — the parse already succeeded and the
+  user should still see their bill; the cache is a perf/cost optimization,
+  not a correctness gate. Logs from this module are PII-free (hash prefix /
+  generic status only — never bill fields or UC).
 """
 from __future__ import annotations
 
+import hashlib
+import logging
 from typing import Annotated, Any
 
 from langchain_core.messages import ToolMessage
@@ -17,9 +29,12 @@ from langchain_core.tools import InjectedToolCallId, tool  # type: ignore[report
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 
+from energia.bill import store as bill_store
 from energia.bill.parser import BillParseError, parse_bill_image
 from energia.chat.state import ChatState
 from energia.chat.tools.registry import register_tool
+
+logger = logging.getLogger(__name__)
 
 _NO_ATTACHMENT_MSG = (
     "Nenhuma imagem de conta anexada nesta sessão. "
@@ -49,6 +64,33 @@ def parse_bill_tool(
             }
         )
 
+    user_id = state["user_id"]
+    bill_hash = hashlib.sha256(pending["image_bytes"]).hexdigest()
+
+    cached = bill_store.find_by_hash(user_id=user_id, bill_hash=bill_hash)
+    if cached is not None:
+        cache_marker = " (lido da memória local — sem nova consulta de visão)"
+        needs_confirmation = cached.confidence < 0.85
+        confirm_note = (
+            " (confirme os dados com o usuário antes de prosseguir)"
+            if needs_confirmation
+            else ""
+        )
+        narration = (
+            f"Conta interpretada: distribuidora {cached.distributor}, "
+            f"UC {cached.installation_number}, período {cached.period}, "
+            f"consumo {cached.consumption_kwh} kWh, "
+            f"total R$ {cached.total_brl}{cache_marker}{confirm_note}."
+        )
+        msg = ToolMessage(content=narration, tool_call_id=tool_call_id)
+        return Command(
+            update={
+                "messages": [msg],
+                "pending_bill_image": None,
+                "current_bill": cached.model_dump(mode="json"),
+            }
+        )
+
     try:
         result = parse_bill_image(pending["image_bytes"], pending["media_type"])
     except BillParseError as exc:
@@ -62,6 +104,17 @@ def parse_bill_tool(
         return Command(update={"messages": [err_msg], "pending_bill_image": None})
 
     bill = result.bill
+    # Cache for future repeat uploads. Insert failures must NOT surface as
+    # parse errors — the user's bill is already valid; the cache is an
+    # optimization. Logged PII-free: hash prefix only, never bill fields.
+    try:
+        bill_store.insert(user_id=user_id, bill=bill, bill_hash=bill_hash)
+    except Exception:
+        logger.warning(
+            "bill_store.insert failed for hash prefix=%s… — continuing without cache",
+            bill_hash[:8],
+        )
+
     confirm_note = (
         " (confirme os dados com o usuário antes de prosseguir)"
         if result.needs_user_confirmation

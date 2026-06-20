@@ -107,6 +107,14 @@ def test_parse_bill_tool_dispatches_and_clears_pending_image_on_success(mocker: 
     """Tool reads state.pending_bill_image, calls parse_bill_image with its bytes,
     returns Command that clears the field and appends a ToolMessage."""
     parse_result = _make_parse_result(confidence=0.95)
+    mocker.patch(
+        "energia.chat.tools.bill.bill_store.find_by_hash",
+        return_value=None,
+    )
+    mocker.patch(
+        "energia.chat.tools.bill.bill_store.insert",
+        return_value="fake-bill-uuid",
+    )
     mock_parse = mocker.patch(
         "energia.chat.tools.bill.parse_bill_image",
         return_value=parse_result,
@@ -153,6 +161,10 @@ def test_parse_bill_tool_catches_billparseerror_and_returns_toolmessage(mocker: 
     """When parse_bill_image raises BillParseError, the tool catches it and returns a
     Command with a ToolMessage describing the failure — no exception leaks to the graph."""
     mocker.patch(
+        "energia.chat.tools.bill.bill_store.find_by_hash",
+        return_value=None,
+    )
+    mocker.patch(
         "energia.chat.tools.bill.parse_bill_image",
         side_effect=BillParseError("bill validation failed: missing fields"),
     )
@@ -169,3 +181,67 @@ def test_parse_bill_tool_catches_billparseerror_and_returns_toolmessage(mocker: 
     assert len(msgs) == 1
     assert isinstance(msgs[0], ToolMessage)
     assert msgs[0].tool_call_id == "call_err"
+
+
+def test_parse_bill_tool_cache_hit_skips_vision_call_and_emits_marker(
+    mocker: Any,
+) -> None:
+    """Cache hit: bill_store.find_by_hash returns a Bill, so parse_bill_image is
+    never called and bill_store.insert is never called either. The Command update
+    carries the cached Bill (via model_dump(mode="json")) and the narration includes
+    the "memória local" marker so the audit trail is unambiguous."""
+    cached = ParseResult(
+        bill=Bill(
+            distributor="Cached Distribuidora",
+            installation_number="111222",
+            period="2026-02",
+            issue_date=date(2026, 2, 5),
+            due_date=date(2026, 2, 15),
+            consumption_kwh=Decimal("250.00"),
+            tariff_group="B1",
+            modalidade="Convencional",
+            bandeira="Verde",
+            total_brl=Decimal("210.00"),
+            composition=BillComposition(
+                tusd=Decimal("90.00"),
+                te=Decimal("80.00"),
+                icms=Decimal("40.00"),
+            ),
+            confidence=0.95,
+        ),
+        needs_user_confirmation=False,
+    ).bill
+
+    mock_find = mocker.patch(
+        "energia.chat.tools.bill.bill_store.find_by_hash",
+        return_value=cached,
+    )
+    mock_parse = mocker.patch("energia.chat.tools.bill.parse_bill_image")
+    mock_insert = mocker.patch("energia.chat.tools.bill.bill_store.insert")
+
+    tool = _get_parse_bill_tool()
+    state = _make_state(pending={"image_bytes": b"\x89PNG\r\n", "media_type": "image/png"})
+
+    result = _invoke(tool, state, "call_cache_hit")
+
+    mock_find.assert_called_once()
+    mock_parse.assert_not_called()
+    mock_insert.assert_not_called()
+
+    assert isinstance(result, Command)
+    update: dict[str, Any] = result.update  # type: ignore[assignment]
+    stored: Any = update["current_bill"]
+    assert isinstance(stored, dict), (
+        "cache hit must write current_bill as JSON-primitive dict (TD-015 contract)"
+    )
+    rehydrated = Bill.model_validate(stored)
+    assert rehydrated == cached
+
+    msgs: list[Any] = update["messages"]
+    assert len(msgs) == 1
+    assert isinstance(msgs[0], ToolMessage)
+    assert msgs[0].tool_call_id == "call_cache_hit"
+    content = cast(str, msgs[0].content)
+    assert "memória local" in content, (
+        "cache hit narration must mark the source so the audit trail is unambiguous"
+    )

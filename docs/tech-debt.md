@@ -7,6 +7,79 @@ Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
 
+## TD-017: bill_store persistence + hash-cache — HR-4 fixture mocks + v1 scope narrowing
+
+**What.** Task 1.4 landed on `feature/bill-store` with three changes:
+
+1. **`src/energia/bill/store.py`** (new) — mirrors `chat/memory.py`.
+   `find_by_hash(user_id, bill_hash)` returns a `Bill | None` rehydrated from
+   `bills.raw_extraction` JSON via `Bill.model_validate`; `insert(user_id,
+   bill, bill_hash)` writes top-level filterable columns plus
+   `bill.model_dump(mode="json")` into `raw_extraction`, idempotent on
+   duplicate hash (`ON CONFLICT (bill_hash) DO NOTHING; SELECT existing.id`)
+   per PLAN.md line 663. No new migration — the existing
+   `20260510_0001_initial_schema.sql` + `20260511_0001_bill_schema.sql`
+   already cover every Bill field (HR-3 unchanged).
+
+2. **Hash-cache seam in `src/energia/chat/tools/bill.py`** — at the top of
+   `parse_bill_tool`, after reading `pending_bill_image`. Computes
+   `sha256(image_bytes).hexdigest()`, consults `bill_store.find_by_hash` for
+   `(user_id, hash)`; on hit, skips `parse_bill_image` entirely and emits a
+   narration with the `" (lido da memória local — sem nova consulta de
+   visão)"` marker. On miss, the existing parse path runs, then
+   `bill_store.insert(...)`. **Insert failures do not surface as parse
+   errors** — the parse already succeeded, the user gets their bill, and the
+   cache is a perf/cost optimization not a correctness gate. Insert-failure
+   log is **PII-free**: hash prefix only (8 hex chars), generic message,
+   never bill fields or UC.
+
+3. **HR-4 test edits (approved before implementation, all additive fixture
+   plumbing — no assertion softened, no skip/xfail).** Five tests gained
+   `mocker.patch` calls for `energia.chat.tools.bill.bill_store.find_by_hash`
+   (returning None to force the cache-miss path) and, where the success
+   branch runs, `bill_store.insert` (returning a fake UUID):
+
+   - `tests/chat/tools/test_bill.py::test_parse_bill_tool_dispatches_and_clears_pending_image_on_success`
+   - `tests/chat/tools/test_bill.py::test_parse_bill_tool_catches_billparseerror_and_returns_toolmessage`
+   - `tests/chat/test_bill_persistence.py::test_parse_bill_success_populates_current_bill_in_state`
+   - `tests/chat/test_bill_persistence.py::test_parse_bill_failure_does_not_populate_current_bill`
+   - `tests/chat/test_bill_persistence.py::test_current_bill_survives_checkpoint_round_trip`
+
+   Plus a new test (not an HR-4 edit — new file content):
+   `tests/chat/tools/test_bill.py::test_parse_bill_tool_cache_hit_skips_vision_call_and_emits_marker`
+   pins the cache-hit branch: `parse_bill_image` and `bill_store.insert` are
+   never called; the Command update carries `cached.model_dump(mode="json")`;
+   the ToolMessage content contains "memória local".
+
+**Why introduced.** Task 1.4 in `docs/PLAN.md` originally listed three CRUD
+tools (`store_bill` internal + `list_user_bills` + `get_bill` LLM-callable)
+and the hash-cache. v1 narrowed this to the cache path only — neither
+`list_user_bills` nor `get_bill` has a caller today; the only LLM-facing
+bill tool is `parse_bill`. Task 1.5 (`compare_bill_periods`) is what will
+actually drive cross-bill retrieval; when it lands it can call
+`bill_store.find_by_period(...)` directly from Python without an
+LLM-facing tool. Keeping the LLM tool surface narrow until something needs
+it is HR-2 hygiene. The HR-4 fixture-mock edits are unavoidable: production
+behavior changed (cache lookup before parse, insert after), and tests that
+exercised the prior path must now mock the new collaborators or they would
+hit the real `data/energia.duckdb`.
+
+**HR-6 posture (Branch A — ADR-003 confirmed).** Plaintext
+`installation_number` and full `raw_extraction` JSON in the gitignored
+local DuckDB matches the existing schema and ADR-003's "local file is the
+LGPD trust boundary" stance. Image bytes never written — only the hex
+SHA-256. Insert-failure log redaction is enforced inside `parse_bill_tool`
+(hash prefix only).
+
+**Resolution target.** Already resolved on this branch. Revisit
+`list_user_bills` / `get_bill` when Task 1.5 or a later feature actually
+needs an LLM-facing retrieval tool. Revisit the HR-6 plaintext-UC posture
+if Daniel ever tightens HR-6 to forbid plaintext UC even in the gitignored
+local file — that would require a new ADR, a new forward-only migration,
+and an encryption layer (separate task).
+
+---
+
 ## TD-016: parser-reliability eval — composition dropped, installation_number normalized
 
 **What.** Two coupled changes on `feature/parser-reliability-cleanup` after the

@@ -87,6 +87,14 @@ def test_parse_bill_success_populates_current_bill_in_state(mocker: Any) -> None
     bill = _make_bill()
     parse_result = ParseResult(bill=bill, needs_user_confirmation=False)
     mocker.patch(
+        "energia.chat.tools.bill.bill_store.find_by_hash",
+        return_value=None,
+    )
+    mocker.patch(
+        "energia.chat.tools.bill.bill_store.insert",
+        return_value="fake-bill-uuid",
+    )
+    mocker.patch(
         "energia.chat.tools.bill.parse_bill_image",
         return_value=parse_result,
     )
@@ -122,6 +130,10 @@ def test_parse_bill_failure_does_not_populate_current_bill(mocker: Any) -> None:
     Rationale: a stale current_bill (if one exists from a prior turn) must
     remain valid. A new failed parse must not clobber it with nothing.
     """
+    mocker.patch(
+        "energia.chat.tools.bill.bill_store.find_by_hash",
+        return_value=None,
+    )
     mocker.patch(
         "energia.chat.tools.bill.parse_bill_image",
         side_effect=BillParseError("bill validation failed"),
@@ -166,6 +178,14 @@ def test_current_bill_survives_checkpoint_round_trip(mocker: Any) -> None:
     """
     bill = _make_bill()
     parse_result = ParseResult(bill=bill, needs_user_confirmation=False)
+    mocker.patch(
+        "energia.chat.tools.bill.bill_store.find_by_hash",
+        return_value=None,
+    )
+    mocker.patch(
+        "energia.chat.tools.bill.bill_store.insert",
+        return_value="fake-bill-uuid",
+    )
     mocker.patch(
         "energia.chat.tools.bill.parse_bill_image",
         return_value=parse_result,
