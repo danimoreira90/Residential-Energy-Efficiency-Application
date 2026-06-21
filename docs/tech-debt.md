@@ -85,6 +85,14 @@ loses the "never WHY" constraint, and the test assertions on
 new cells. The stale-correction gap is its own follow-up, tracked here for
 when it becomes a real user complaint rather than a theoretical concern.
 
+**Observed (Task 1.5 smoke test, Dez/2025 → Fev/2026):** model narrated "pode indicar
+mudança de bandeira tarifária ou de impostos" — an unsupported causal hypothesis —
+directly above its own "não consigo explicar por que" disclaimer. Confirms the
+narration-layer leak is real, not theoretical. Fix: add a no-causal-speculation
+clause to the system prompt (prompts.py) in Sprint 2 when get_tariff lands and
+honest causal decomposition becomes possible. Repro: two bills with different
+bandeira/consumption, then "compara minhas contas".
+
 ---
 
 ## TD-017: bill_store persistence + hash-cache — HR-4 fixture mocks + v1 scope narrowing
