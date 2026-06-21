@@ -11,6 +11,7 @@ To add a tool in a future sprint:
 from langchain_core.tools import BaseTool
 
 import energia.chat.tools.bill  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers parse_bill_tool
+import energia.chat.tools.compare  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers compare_bill_periods
 import energia.chat.tools.correct  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers correct_bill_field
 import energia.chat.tools.hello  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers hello_world_tool
 from energia.chat.tools.registry import get_all_tools

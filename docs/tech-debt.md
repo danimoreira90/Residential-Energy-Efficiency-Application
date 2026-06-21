@@ -7,6 +7,86 @@ Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
 
+## TD-018: compare_bill_periods v1 — narrow scope + effective-rate ≠ tariff + WHAT-not-WHY framing
+
+**What.** Task 1.5 landed on `feature/bill-comparison` with a deliberately
+narrower scope than the PLAN.md Task 1.5 entry originally described, and a
+honesty relabel of the rate field. The v1 tool reports three deltas only:
+
+- `consumption_delta_kwh` + `consumption_delta_pct`
+- `cost_delta_brl` + `cost_delta_pct`
+- `effective_rate_delta_brl_per_kwh` — derived from
+  `later.total_brl / later.consumption_kwh` minus the equivalent for the
+  earlier period.
+
+Field names use `effective_rate_*`, NEVER `tariff_*`. The "effective rate"
+is the BLENDED R$/kWh the user actually paid (`total_brl / consumption_kwh`)
+— it is NOT the regulated tariff (TUSD + TE). The tool's docstring,
+narration seed, and PT-BR error messages describe WHAT moved (consumption
+Δ, cost Δ, effective-rate Δ) — never WHY. No "sua tarifa subiu", no
+"causou", no "porque". The test suite enforces both: the success-path
+narration is asserted free of `tarifa`/`causou`/`porque`/`por que` tokens;
+every not-enough-bills branch is asserted free of `kWh`/`R$`/`%` tokens
+(HR-5 — no synthesized numbers when there's nothing to compute).
+
+**Why introduced.**
+
+1. **The PLAN.md Task 1.5 entry (lines 996-1004) specifies a 4-cell
+   decomposition** — consumption effect + tariff effect + bandeira effect +
+   tax effect + residual — that requires authoritative `tariff_a` and
+   `tariff_b` values from ANEEL. Those don't exist in v1; `get_tariff` is
+   Sprint 2 Task 2.3. Shipping the formula now would either invent tariff
+   numbers (HR-5 violation) or derive them from the bill's `composition_json`
+   (which is empirically unreliable per TD-014 — degrades to `null` on most
+   bills). The narrower v1 scope reports only what we can compute honestly
+   from stored Bill fields.
+
+2. **The blended `total / consumption` is NOT a tariff.** It collapses
+   regulated tariff (TUSD + TE), bandeira surcharge, ICMS, PIS/COFINS, COSIP
+   and any minimum charge into one R$/kWh number. Calling it a "tariff" in
+   the field name or narration would teach the LLM to attribute movement to
+   the wrong cause. The relabel ("effective rate") is the structural HR-5
+   win: we report a number we can derive, not a price we don't have.
+
+3. **The full PLAN decomposition reopens as a Task 1.5 amendment after
+   Sprint 2.** Once `get_tariff` returns authoritative TUSD/TE/bandeira
+   surcharge values per period, the comparison can grow new cells
+   (`tariff_effect_brl`, `bandeira_effect_brl`, `tax_effect_brl`, `residual`)
+   on top of the existing scaffolding. The `BillPeriodComparison` Pydantic
+   model becomes the slot for those additions; no schema change needed.
+
+**Stale-correction gap (accepted v1 limitation).** `compare_bill_periods`
+reads bills from `bill_store` — the *stored parse*. `correct_bill_field`
+(Task 1.8) updates `current_bill` in ChatState but does NOT propagate
+corrections back to `bill_store`. So a comparison run after an in-session
+correction will use the pre-correction stored values. Low-impact given
+current parse reliability (header fields are consistently MATCH per the
+parser-reliability baseline + TD-016 normalizations), and the comparison
+isn't a high-stakes financial calculation — it's a narration seed for the
+LLM. Revisit if compare-after-correction starts producing visibly wrong
+numbers. The fix would be either (a) propagating `correct_bill_field`
+updates back to `bill_store` (adds a write path that has to handle the
+"which row to update" question — bills are immutable by design today), or
+(b) preferring `state["current_bill"]` over `bill_store` for the matching
+period in `compare_bill_periods`. Both are larger than v1's scope.
+
+**HR-4 status.** Zero existing tests modified. The registry sweep was clean
+(every existing test uses membership / equality-of-views / lower-bound on
+`ALL_TOOLS`, never an exact count or set equality). The new `find_by_period`
+/ `find_latest_periods` tests live in a NEW file
+(`tests/bill/test_store_periods.py`), separate from the existing
+`tests/bill/test_store.py`, so `test_store.py` stays untouched.
+
+**Resolution target.** Already resolved on this branch. Re-open as a Task
+1.5 amendment when Sprint 2 Task 2.3 (`get_tariff`) lands — the
+`BillPeriodComparison` model gains the causal cells, the tool's docstring
+loses the "never WHY" constraint, and the test assertions on
+`tarifa`/`causou`/`porque` get relaxed in favor of structural checks on the
+new cells. The stale-correction gap is its own follow-up, tracked here for
+when it becomes a real user complaint rather than a theoretical concern.
+
+---
+
 ## TD-017: bill_store persistence + hash-cache — HR-4 fixture mocks + v1 scope narrowing
 
 **What.** Task 1.4 landed on `feature/bill-store` with three changes:

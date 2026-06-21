@@ -142,3 +142,53 @@ def insert(
                 )
             return str(recovered[0])
         return str(new_row[0])
+
+
+def find_by_period(
+    user_id: str,
+    period: str,
+    db_path: str | None = None,
+) -> Bill | None:
+    """Return the most recent Bill for (user_id, period), or None on miss.
+
+    Multiplicity rule: one period can have multiple rows (different image
+    bytes → different bill_hash, same period). We return the most recent row
+    via ``ORDER BY created_at DESC LIMIT 1`` because newer rows reflect later
+    re-uploads or corrections — newest-is-best matches the user mental model.
+    """
+    with connection(db_path) as con:
+        row = con.execute(
+            "SELECT raw_extraction FROM bills "
+            "WHERE user_id = ? AND period = ? "
+            "ORDER BY created_at DESC LIMIT 1",
+            [user_id, period],
+        ).fetchone()
+        if row is None:
+            return None
+        raw: Any = row[0]
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        return Bill.model_validate(raw)
+
+
+def find_latest_periods(
+    user_id: str,
+    n: int = 2,
+    db_path: str | None = None,
+) -> list[str]:
+    """Return up to ``n`` distinct periods for the user, most-recent first.
+
+    Recency is measured by ``MAX(created_at)`` over the rows in each period —
+    so a re-upload that adds a row for an older period bumps that period
+    forward in the ordering. Empty list when the user has no bills.
+    """
+    with connection(db_path) as con:
+        rows = con.execute(
+            "SELECT period FROM bills "
+            "WHERE user_id = ? "
+            "GROUP BY period "
+            "ORDER BY MAX(created_at) DESC "
+            "LIMIT ?",
+            [user_id, n],
+        ).fetchall()
+    return [str(row[0]) for row in rows]
