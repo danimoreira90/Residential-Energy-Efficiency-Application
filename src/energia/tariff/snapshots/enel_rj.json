@@ -1,0 +1,25 @@
+{
+  "distributor": "Enel Distribuição Rio",
+  "aliases": ["Enel Rio", "Enel Brasil", "Enel RJ"],
+  "tariff_group": "B1",
+  "unit": "BRL_per_MWh",
+  "source": {
+    "resolution": "REH 3570/2026",
+    "published": "2026-03-10",
+    "url": "https://www.enel.com.br/content/dam/enel-br/Tarifas/SEI_48500.030702_2025_70 REH 3570-2026.pdf"
+  },
+  "effective_from": "2026-03-15",
+  "effective_to": "2027-03-14",
+  "subclasses": {
+    "convencional": {
+      "tusd": 731.72,
+      "te": 329.38
+    },
+    "baixa_renda": {
+      "tusd": 566.34,
+      "te": 300.77,
+      "v1_supported": false,
+      "note": "Subsidized. 100% TUSD+TE waiver on first 80 kWh/month (REH 3570 Tabela 3). v1 detects and disclaims; does not compute the discount."
+    }
+  }
+}
