@@ -14,6 +14,7 @@ import energia.chat.tools.bill  # noqa: F401  # pyright: ignore[reportUnusedImpo
 import energia.chat.tools.compare  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers compare_bill_periods
 import energia.chat.tools.correct  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers correct_bill_field
 import energia.chat.tools.hello  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers hello_world_tool
+import energia.chat.tools.tariff  # noqa: F401  # pyright: ignore[reportUnusedImport] — side-effect: registers get_tariff
 from energia.chat.tools.registry import get_all_tools
 
 ALL_TOOLS: list[BaseTool] = get_all_tools()

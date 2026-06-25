@@ -7,6 +7,49 @@ Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
 
+## TD-019: get_tariff v1 — single-distributor resolution, multi-distributor Protocol + fallback deferred
+
+**What.** Task 2.3 landed `get_tariff` on `feature/get-tariff` as a pure lookup
+over the single committed Enel RJ snapshot (ADR-004 / ADR-005). Distributor
+resolution is intentionally hardcoded to the one snapshot: the user's
+`distributor` string is matched (case-insensitive, accent-tolerant via
+`unicodedata` NFKD + casefold) against the snapshot's canonical name + aliases,
+resolving to the constant slug `enel_rj`. There is:
+
+- no `DistributorResolver` Protocol / slug map,
+- no generic cross-distributor fallback,
+- no second snapshot.
+
+A distributor that doesn't match Enel RJ returns a number-free "fora do escopo"
+disclaimer; `baixa_renda` (and any `v1_supported is False` subclass) returns a
+number-free subsidized-account disclaimer (HR-5).
+
+**Why introduced.** Designing a multi-distributor abstraction against a single
+example is an ADR-007-class honesty risk (recorded in ADR-005). The worst
+failure mode is a "nearest distributor" fallback that returns Enel's tariff for
+`Light` / `CPFL` — a direct HR-5 violation wearing a feature's clothes. The
+honest v1 covers exactly the one verified snapshot and disclaims the rest. The
+resolver abstraction only earns its keep when a second *verified* snapshot
+creates a real case to generalize from.
+
+**Carried debt.**
+1. `_V1_SLUG = "enel_rj"` and the single-snapshot resolution in
+   `src/energia/chat/tools/tariff.py` must be generalized when distributor #2
+   arrives — into a resolver that maps a normalized distributor name to a slug
+   across all committed snapshots.
+2. The `InjectedState` parameter on `get_tariff` is currently unread (kept for
+   tool-signature parity / a future bill-aware variant). It is dead weight until
+   then.
+
+**Resolution target.** Re-open when a second distributor snapshot is committed.
+At that point: add the resolver (Protocol or slug map), keep the
+"no-match → out-of-scope, no fallback" guarantee, and extend
+`tests/chat/tools/test_tariff.py` with the second distributor's resolution +
+isolation cases. Drop or use the `state` parameter when a bill-aware tariff
+variant actually needs it.
+
+---
+
 ## TD-018: compare_bill_periods v1 — narrow scope + effective-rate ≠ tariff + WHAT-not-WHY framing
 
 **What.** Task 1.5 landed on `feature/bill-comparison` with a deliberately

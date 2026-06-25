@@ -1,6 +1,6 @@
 """tariff/snapshot — reader for versioned local ANEEL tariff snapshots.
 
-Option B (ADR-006 revised): the authoritative runtime tariff source is a
+Option B (ADR-004): the authoritative runtime tariff source is a
 versioned local JSON snapshot committed under ``snapshots/<slug>.json``, not a
 live ANEEL API client or HTTP cache. This module is the *reader* for that file
 — pure read + parse + compute. No network, no cache, no LLM, no ChatState,
