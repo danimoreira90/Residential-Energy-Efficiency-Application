@@ -21,5 +21,19 @@
       "v1_supported": false,
       "note": "Subsidized. 100% TUSD+TE waiver on first 80 kWh/month (REH 3570 Tabela 3). v1 detects and disclaims; does not compute the discount."
     }
+  },
+  "branca": {
+    "ponta": {
+      "tusd": 1665.26,
+      "te": 493.30
+    },
+    "intermediaria": {
+      "tusd": 1122.11,
+      "te": 314.47
+    },
+    "fora_ponta": {
+      "tusd": 578.96,
+      "te": 314.47
+    }
   }
 }
