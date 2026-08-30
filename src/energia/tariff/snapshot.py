@@ -50,6 +50,14 @@ class SubclassTariff(BaseModel):
     note: str | None = None
 
 
+class BrancaTariff(BaseModel):
+    """Tarifa Branca components, published in R$/MWh for each time period."""
+
+    ponta: SubclassTariff
+    intermediaria: SubclassTariff
+    fora_ponta: SubclassTariff
+
+
 class TariffSnapshot(BaseModel):
     """A versioned tariff snapshot for a single distributor."""
 
@@ -61,6 +69,7 @@ class TariffSnapshot(BaseModel):
     effective_from: date
     effective_to: date
     subclasses: dict[str, SubclassTariff]
+    branca: BrancaTariff | None = None
 
     def base_tariff_brl_per_kwh(self, subclass: str) -> Decimal:
         """Regulated base tariff (TUSD + TE) for ``subclass``, in R$/kWh.

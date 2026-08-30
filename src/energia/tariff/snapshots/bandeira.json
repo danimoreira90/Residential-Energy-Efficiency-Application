@@ -1,0 +1,22 @@
+{
+  "source": {
+    "resource_id": "0591b8f6-fe54-437b-b72b-1aa2efd46e42",
+    "url": "https://dadosabertos.aneel.gov.br/dataset/7f43a020-6dc5-44b8-80b4-d97eaa94436c/resource/0591b8f6-fe54-437b-b72b-1aa2efd46e42/download/bandeira-tarifaria-acionamento.csv",
+    "updated": "2026-08-24",
+    "hash_value": "c098ee1b39e75b28b5ac646e1e9746ca"
+  },
+  "records": [
+    {"period": "2025-09-01", "flag": "Vermelha Patamar 2", "surcharge_brl_per_kwh": "0.07877"},
+    {"period": "2025-10-01", "flag": "Vermelha Patamar 1", "surcharge_brl_per_kwh": "0.04463"},
+    {"period": "2025-11-01", "flag": "Vermelha Patamar 1", "surcharge_brl_per_kwh": "0.04463"},
+    {"period": "2025-12-01", "flag": "Amarela", "surcharge_brl_per_kwh": "0.01885"},
+    {"period": "2026-01-01", "flag": "Verde", "surcharge_brl_per_kwh": "0"},
+    {"period": "2026-02-01", "flag": "Verde", "surcharge_brl_per_kwh": "0"},
+    {"period": "2026-03-01", "flag": "Verde", "surcharge_brl_per_kwh": "0"},
+    {"period": "2026-04-01", "flag": "Verde", "surcharge_brl_per_kwh": "0"},
+    {"period": "2026-05-01", "flag": "Amarela", "surcharge_brl_per_kwh": "0.01885"},
+    {"period": "2026-06-01", "flag": "Amarela", "surcharge_brl_per_kwh": "0.01885"},
+    {"period": "2026-07-01", "flag": "Amarela", "surcharge_brl_per_kwh": "0.01885"},
+    {"period": "2026-08-01", "flag": "Amarela", "surcharge_brl_per_kwh": "0.01885"}
+  ]
+}

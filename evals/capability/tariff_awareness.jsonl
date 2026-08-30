@@ -1,0 +1,4 @@
+# Sprint 2 tariff-awareness capability fixtures. Deterministic contract checks live in tests.
+{"name":"current_bandeira","input_messages":[{"role":"user","content":"Qual é a Bandeira Tarifária deste mês?"}],"expected_tool":"current_bandeira"}
+{"name":"bandeira_history","input_messages":[{"role":"user","content":"Mostre o histórico dos últimos 12 meses da Bandeira Tarifária."}],"expected_tool":"bandeira_history","expected_input_match":{"months":12}}
+{"name":"simulate_tarifa_branca","input_messages":[{"role":"user","content":"Na Enel Rio, consumo 30 kWh na ponta, 20 kWh no intermediário e 250 kWh fora de ponta. Compare minha tarifa convencional com a Tarifa Branca."}],"expected_tool":"simulate_tarifa_branca","expected_input_match":{"distributor":"Enel Rio","ponta_kwh":30,"intermediaria_kwh":20,"fora_ponta_kwh":250}}
