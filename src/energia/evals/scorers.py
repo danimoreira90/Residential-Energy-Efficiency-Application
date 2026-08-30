@@ -50,6 +50,11 @@ def input_matches(result: ExampleResult, expected: dict[str, Any]) -> bool:
     return False
 
 
+def forbidden_tools_not_called(result: ExampleResult, forbidden_tools: list[str]) -> bool:
+    """True when none of the named tools were invoked."""
+    return all(tool_call.name not in forbidden_tools for tool_call in result.tool_calls)
+
+
 def output_matches_pattern(result: ExampleResult, pattern: str) -> bool:
     """True when the final assistant message matches the given regex pattern (DOTALL)."""
     return bool(re.search(pattern, result.final_message, re.DOTALL))

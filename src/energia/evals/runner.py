@@ -33,12 +33,13 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from energia.config import settings
 from energia.evals.scorers import (
     ExampleResult,
     ToolCallRecord,
+    forbidden_tools_not_called,
     input_matches,
     output_matches_pattern,
     output_not_matches_pattern,
@@ -78,6 +79,7 @@ class EvalExample(BaseModel):
     expected_input_match: dict[str, Any] | None = None
     expected_output_pattern: str | None = None
     expected_output_not_pattern: str | None = None
+    forbidden_tools: list[str] = Field(default_factory=list)
 
 
 class ExampleReport(BaseModel):
@@ -197,13 +199,24 @@ def run_example(example: EvalExample) -> ExampleResult:
 def score_attempt(result: ExampleResult, example: EvalExample) -> bool:
     """Apply all configured scorers; True only when every scorer passes.
 
-    Scorers are applied in order: tool_called → input_matches → output_matches_pattern.
+    Scorers are applied in order: tool_called → forbidden_tools → input_matches
+    → output_matches_pattern.
     The first failure short-circuits.
     """
     if not tool_called(result, example.expected_tool):
         return False
+    if not forbidden_tools_not_called(result, example.forbidden_tools):
+        return False
     if example.expected_input_match is not None:
-        if not input_matches(result, example.expected_input_match):
+        input_result = result
+        if example.expected_tool is not None:
+            input_result = ExampleResult(
+                tool_calls=[
+                    call for call in result.tool_calls if call.name == example.expected_tool
+                ],
+                final_message=result.final_message,
+            )
+        if not input_matches(input_result, example.expected_input_match):
             return False
     if example.expected_output_pattern is not None:
         if not output_matches_pattern(result, example.expected_output_pattern):
