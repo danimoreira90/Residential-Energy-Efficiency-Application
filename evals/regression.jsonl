@@ -1,2 +1,4 @@
 # Regression eval baseline — append-only, never overwrite (HR-4).
 # This file is intentionally empty in Sprint 0. Future tasks append examples as tools ship.
+{"name":"get_tariff_stays_a_pure_lookup","input_messages":[{"role":"user","content":"Qual é a tarifa regulada da Enel Rio?"}],"expected_tool":"get_tariff","expected_input_match":{"distributor":"Enel Rio"}}
+{"name":"get_tariff_rejects_tariff_awareness_tools","input_messages":[{"role":"user","content":"Qual é a tarifa regulada da Enel Rio?"}],"expected_tool":"get_tariff","expected_input_match":{"distributor":"Enel Rio"},"forbidden_tools":["current_bandeira","bandeira_history","simulate_tarifa_branca"]}
