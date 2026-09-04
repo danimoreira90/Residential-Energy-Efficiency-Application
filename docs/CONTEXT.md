@@ -121,12 +121,12 @@ Self-consumed solar (or other) generation behind the meter. ANEEL Resolução No
 v1 sizing is microgeração only.
 
 ### Lei 14.300/2022 (Marco Legal da GD)
-Phases in net metering compensation reductions through 2029. Affects payback calculations for new installations. The `solar.payback` tool MUST account for the user's connection date — pre-2023 installations are grandfathered for 25 years; new installations face graduated reductions in TUSD compensation.
+Phases in SCEE compensation charges for new installations. Article 26 preserves eligible existing projects through 31 December 2045; it is not a generic "25-year" term. The `solar.payback` tool models only new/prospective installations from 2023 onward under Article 27.
 
 This is the single most important regulatory parameter in payback math.
 
 ### Crédito de Energia
-When a GD system generates more than the home consumes in a billing period, the surplus is credited as kWh to be used in subsequent months at the same UC (or other UCs of the same user under autoconsumo remoto). Credits expire after 60 months. Modeled in `solar.payback.simulate_year()`.
+When a GD system generates more than the home consumes in a billing period, the surplus is credited as kWh to be used in subsequent months at the same UC (or other UCs of the same user under autoconsumo remoto). Credits expire after 60 months. Modeled in `solar.payback.calculate_solar_payback()`.
 
 ### Fio B
 The TUSD-Distribuição component. Lei 14.300 specifically reduces compensation for Fio B for new GD installations on a graduated schedule:
@@ -136,9 +136,9 @@ The TUSD-Distribuição component. Lei 14.300 specifically reduces compensation 
 - 2026: 60%
 - 2027: 75%
 - 2028: 90%
-- 2029+: full Fio B charged on injected energy
+- 2029+: Article 17 tariff rules; v1 uses 100% Fio B only as a conservative planning scenario pending final ANEEL regulation, never as current law
 
-Hardcoded in `tariff.gd.fio_b_schedule()`. Update if Lei changes.
+Hardcoded in `tariff.gd.compensation_charge()`. Any update requires a new ADR and official-source review.
 
 ---
 
@@ -315,7 +315,7 @@ Mixed-language identifiers like `tarifaBranca` are tolerated when the regulatory
 - [ ] How does v1 handle a user with multiple Installations (rare but real for owners with a primary residence + a beach house)? Design suggests "first one is default; switching is a settings concern, post-v1."
 - [ ] Tarifa Branca simulation needs a consumption-shape assumption (when in the day does the user use energy?). Default profile from ANEEL's residential typical curves vs. ask the user — TBD.
 - [ ] When ANEEL data is stale or the cache is empty, do we fall back to hand-curated CSV (last known good) or refuse to answer? Current design: fall back with a "values from <date>" disclaimer.
-- [ ] Lei 14.300 Fio B schedule — should we let the user override the assumption (e.g., for sensitivity analysis) or keep it locked to the legal schedule? Current design: locked, but show in assumptions block.
+- [x] Lei 14.300 Fio B schedule — locked statutory percentages for 2023–2028; the separately labeled 2029+ conservative planning scenario is also locked and shown in the assumptions block (ADR-010).
 - [ ] How long do we keep parsed bill data? LGPD says "as long as needed for the stated purpose." For v1, indefinite within the local DuckDB; user can clear by deleting the file. Document in privacy.md.
 ## How to use this file
 
@@ -417,12 +417,12 @@ Self-consumed solar (or other) generation behind the meter. ANEEL Resolução No
 v1 sizing is microgeração only.
 
 ### Lei 14.300/2022 (Marco Legal da GD)
-Phases in net metering compensation reductions through 2029. Affects payback calculations for new installations. The `solar.payback` tool MUST account for the user's connection date — pre-2023 installations are grandfathered for 25 years; new installations face graduated reductions in TUSD compensation.
+Phases in SCEE compensation charges for new installations. Article 26 preserves eligible existing projects through 31 December 2045; it is not a generic "25-year" term. The `solar.payback` tool models only new/prospective installations from 2023 onward under Article 27.
 
 This is the single most important regulatory parameter in payback math.
 
 ### Crédito de Energia
-When a GD system generates more than the home consumes in a billing period, the surplus is credited as kWh to be used in subsequent months at the same UC (or other UCs of the same user under autoconsumo remoto). Credits expire after 60 months. Modeled in `solar.payback.simulate_year()`.
+When a GD system generates more than the home consumes in a billing period, the surplus is credited as kWh to be used in subsequent months at the same UC (or other UCs of the same user under autoconsumo remoto). Credits expire after 60 months. Modeled in `solar.payback.calculate_solar_payback()`.
 
 ### Fio B
 The TUSD-Distribuição component. Lei 14.300 specifically reduces compensation for Fio B for new GD installations on a graduated schedule:
@@ -432,9 +432,9 @@ The TUSD-Distribuição component. Lei 14.300 specifically reduces compensation 
 - 2026: 60%
 - 2027: 75%
 - 2028: 90%
-- 2029+: full Fio B charged on injected energy
+- 2029+: Article 17 tariff rules; v1 uses 100% Fio B only as a conservative planning scenario pending final ANEEL regulation, never as current law
 
-Hardcoded in `tariff.gd.fio_b_schedule()`. Update if Lei changes.
+Hardcoded in `tariff.gd.compensation_charge()`. Any update requires a new ADR and official-source review.
 
 ---
 
@@ -577,5 +577,5 @@ Mixed-language identifiers like `tarifaBranca` are tolerated when the regulatory
 - [ ] How does v1 handle a user with multiple Installations (rare but real for owners with a primary residence + a beach house)? Design suggests "first one is default; switching is a settings concern, post-v1."
 - [ ] Tarifa Branca simulation needs a consumption-shape assumption (when in the day does the user use energy?). Default profile from ANEEL's residential typical curves vs. ask the user — TBD.
 - [ ] When ANEEL data is stale or the cache is empty, do we fall back to hand-curated CSV (last known good) or refuse to answer? Current design: fall back with a "values from <date>" disclaimer.
-- [ ] Lei 14.300 Fio B schedule — should we let the user override the assumption (e.g., for sensitivity analysis) or keep it locked to the legal schedule? Current design: locked, but show in assumptions block.
+- [x] Lei 14.300 Fio B schedule — locked statutory percentages for 2023–2028; the separately labeled 2029+ conservative planning scenario is also locked and shown in the assumptions block (ADR-010).
 - [ ] How long do we keep parsed bill data? LGPD says "as long as needed for the stated purpose." For v1, indefinite within the local DuckDB; user can clear by deleting the file. Document in privacy.md.
