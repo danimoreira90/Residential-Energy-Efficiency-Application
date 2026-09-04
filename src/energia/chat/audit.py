@@ -3,16 +3,144 @@
 HR-6: PII patterns are redacted from inputs before storage.
 HR-5: every tool invocation creates a synthetic assistant message + tool_call row.
 """
+import json
 import logging
 import re
-from typing import Any
+import unicodedata
+from collections.abc import Mapping
+from decimal import Decimal, DecimalException
+from typing import Any, cast
 from uuid import UUID
 
 from langchain_core.callbacks.base import BaseCallbackHandler
 
 from energia.db import connect
+from energia.solar.payback import decimal_within_model_bounds, is_identity_shaped_numeric
 
 logger = logging.getLogger(__name__)
+
+_SOLAR_PAYBACK_INPUT_FIELDS = (
+    "monthly_consumption_kwh",
+    "monthly_generation_kwh",
+    "system_cost_brl",
+    "distributor",
+    "connection_year",
+    "connection_type",
+    "real_tariff_inflation_rate",
+    "annual_generation_degradation_rate",
+)
+_ENEL_RJ_DISTRIBUTORS = {
+    "enel distribuicao rio": "Enel Distribuição Rio",
+    "enel rio": "Enel Rio",
+    "enel brasil": "Enel Brasil",
+    "enel rj": "Enel RJ",
+}
+_DISTRIBUTOR_REDACTED = "[DISTRIBUTOR-REDACTED]"
+_SOLAR_PAYBACK_INPUT_REDACTED = "[SOLAR-PAYBACK-INPUT-REDACTED]"
+_SOLAR_PAYBACK_ERROR = (
+    "Não consegui calcular o retorno solar com as premissas fornecidas. "
+    "Revise os dados e tente novamente."
+)
+_SOLAR_PAYBACK_CONNECTION_TYPES = {
+    "monofasica_ou_bifasica_2_condutores",
+    "bifasica_3_condutores",
+    "trifasica",
+}
+
+
+def _normalize_distributor(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value)
+    without_accents = "".join(
+        char for char in decomposed if not unicodedata.combining(char)
+    )
+    return without_accents.casefold().strip()
+
+
+def _sanitize_solar_payback_input(
+    input_str: str,
+    inputs: Mapping[str, object] | None = None,
+) -> str:
+    """Allowlist model inputs before the pre-validation audit write."""
+    def validated_decimal(value: object) -> Decimal | None:
+        if (
+            isinstance(value, bool)
+            or is_identity_shaped_numeric(value)
+            or not isinstance(value, Decimal | int | float | str)
+        ):
+            return None
+        try:
+            number = Decimal(str(value))
+        except (DecimalException, ValueError):
+            return None
+        return number if decimal_within_model_bounds(number) else None
+
+    if isinstance(inputs, Mapping):
+        payload = inputs
+    else:
+        try:
+            parsed: object = json.loads(input_str)
+        except (TypeError, ValueError):
+            return _SOLAR_PAYBACK_INPUT_REDACTED
+        if not isinstance(parsed, dict):
+            return _SOLAR_PAYBACK_INPUT_REDACTED
+        payload = cast(dict[str, object], parsed)
+
+    if any(field not in payload for field in _SOLAR_PAYBACK_INPUT_FIELDS[:6]):
+        return _SOLAR_PAYBACK_INPUT_REDACTED
+
+    consumption = validated_decimal(payload["monthly_consumption_kwh"])
+    system_cost = validated_decimal(payload["system_cost_brl"])
+    generation_input = payload["monthly_generation_kwh"]
+    distributor = payload["distributor"]
+    connection_year = payload["connection_year"]
+    connection_type = payload["connection_type"]
+    if not isinstance(generation_input, list):
+        return _SOLAR_PAYBACK_INPUT_REDACTED
+    generation_values = cast(list[object], generation_input)
+    if (
+        consumption is None
+        or consumption <= 0
+        or system_cost is None
+        or system_cost <= 0
+        or len(generation_values) != 12
+        or not isinstance(distributor, str)
+        or not distributor.strip()
+        or len(distributor.strip()) > 100
+        or is_identity_shaped_numeric(connection_year)
+        or type(connection_year) is not int
+        or connection_year < 2023
+        or not isinstance(connection_type, str)
+        or connection_type not in _SOLAR_PAYBACK_CONNECTION_TYPES
+    ):
+        return _SOLAR_PAYBACK_INPUT_REDACTED
+
+    generation: list[Decimal] = []
+    for item in generation_values:
+        number = validated_decimal(item)
+        if number is None or number < 0:
+            return _SOLAR_PAYBACK_INPUT_REDACTED
+        generation.append(number)
+    if not any(number > 0 for number in generation):
+        return _SOLAR_PAYBACK_INPUT_REDACTED
+
+    clean: dict[str, object] = {
+        "monthly_consumption_kwh": str(consumption),
+        "monthly_generation_kwh": [str(number) for number in generation],
+        "system_cost_brl": str(system_cost),
+        "distributor": _ENEL_RJ_DISTRIBUTORS.get(
+            _normalize_distributor(distributor), _DISTRIBUTOR_REDACTED
+        ),
+        "connection_year": connection_year,
+        "connection_type": connection_type,
+    }
+    for field in _SOLAR_PAYBACK_INPUT_FIELDS[6:]:
+        if field not in payload:
+            continue
+        rate = validated_decimal(payload[field])
+        if rate is None or not Decimal("0") <= rate < Decimal("1"):
+            return _SOLAR_PAYBACK_INPUT_REDACTED
+        clean[field] = str(rate)
+    return json.dumps(clean, ensure_ascii=False, allow_nan=False)
 
 
 class PIIScrubber:
@@ -74,6 +202,7 @@ class DuckDBAuditCallback(BaseCallbackHandler):
         self._conversation_id = conversation_id
         self._db_path = db_path
         self._run_to_call_id: dict[str, str] = {}
+        self._solar_payback_run_ids: set[str] = set()
         self._scrubber = PIIScrubber()
 
     def on_tool_start(
@@ -89,7 +218,11 @@ class DuckDBAuditCallback(BaseCallbackHandler):
         **kwargs: Any,
     ) -> None:
         tool_name = str(serialized.get("name", "unknown"))
-        clean_input = self._scrubber.scrub(input_str)
+        clean_input = self._scrubber.scrub(
+            _sanitize_solar_payback_input(input_str, inputs)
+            if tool_name == "solar_payback"
+            else input_str
+        )
 
         con = connect(self._db_path)
         try:
@@ -111,7 +244,10 @@ class DuckDBAuditCallback(BaseCallbackHandler):
             if call_row is None:
                 logger.error("Failed to insert tool_call row for %s", tool_name)
                 return
-            self._run_to_call_id[str(run_id)] = str(call_row[0])
+            run_key = str(run_id)
+            self._run_to_call_id[run_key] = str(call_row[0])
+            if tool_name == "solar_payback":
+                self._solar_payback_run_ids.add(run_key)
         finally:
             con.close()
 
@@ -123,7 +259,9 @@ class DuckDBAuditCallback(BaseCallbackHandler):
         parent_run_id: UUID | None = None,
         **kwargs: Any,
     ) -> None:
-        call_id = self._run_to_call_id.get(str(run_id))
+        run_key = str(run_id)
+        call_id = self._run_to_call_id.pop(run_key, None)
+        self._solar_payback_run_ids.discard(run_key)
         if call_id is None:
             return
         clean_output = self._scrubber.scrub(str(output))
@@ -144,10 +282,17 @@ class DuckDBAuditCallback(BaseCallbackHandler):
         parent_run_id: UUID | None = None,
         **kwargs: Any,
     ) -> None:
-        call_id = self._run_to_call_id.get(str(run_id))
+        run_key = str(run_id)
+        call_id = self._run_to_call_id.pop(run_key, None)
+        is_solar_payback = run_key in self._solar_payback_run_ids
+        self._solar_payback_run_ids.discard(run_key)
         if call_id is None:
             return
-        clean_error = self._scrubber.scrub(str(error))
+        clean_error = (
+            _SOLAR_PAYBACK_ERROR
+            if is_solar_payback
+            else self._scrubber.scrub(str(error))
+        )
         con = connect(self._db_path)
         try:
             con.execute(
