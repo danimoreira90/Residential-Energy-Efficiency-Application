@@ -1,0 +1,25 @@
+{
+  "source": {
+    "resource_id": "e8717aa8-2521-453f-bf16-fbb9a16eea39",
+    "resource_hash": "c4bd43306833b0583a2fad9fa0945665",
+    "updated": "2026-09-03",
+    "url": "https://dadosabertos.aneel.gov.br/pt_BR/dataset/componentes-tarifarias/resource/e8717aa8-2521-453f-bf16-fbb9a16eea39"
+  },
+  "unit": "BRL_per_MWh",
+  "rows": [
+    {
+      "distributor": "ENEL RJ",
+      "tariff_group": "B1",
+      "modality": "Convencional",
+      "consumer_class": "Residencial",
+      "consumer_subclass": "Residencial",
+      "consumer_detail": "Não se aplica",
+      "tariff_period": "Não se aplica",
+      "basis": "Tarifa de Aplicação",
+      "component": "TUSD_FioB",
+      "effective_from": "2026-03-15",
+      "effective_to": "2027-03-14",
+      "value": "361.02479751700002"
+    }
+  ]
+}

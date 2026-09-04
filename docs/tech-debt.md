@@ -7,6 +7,25 @@ Newest entries go at the top. When resolved, move to the "Resolved" section
 at the bottom with the resolution date and the commit/PR that closed it.
 
 
+## TD-020: Task 3.3 RED-contract corrections under owner approval
+
+**What.** The four newly created Task 3.3 test files were corrected before
+their first commit: the LangGraph boundary now executes `ToolNode` through a
+compiled `StateGraph`, strict typing issues were removed, and missing
+assumptions, FIFO, snapshot-conflict, magnitude, and LGPD audit cases were
+added. A focused audit test was created separately.
+
+**Why introduced.** The initial RED contracts used direct `ToolNode.invoke`,
+which locked LangGraph 1.1.10 rejects before any tool runs, and did not fully
+cover the approved specification or independent security-review findings.
+Daniel explicitly approved these protected-test edits on 2026-09-04. No
+assertion was weakened, skipped, or marked expected-failure.
+
+**Resolution target.** Resolved in Task 3.3 before commit; retain this entry as
+the HR-4 audit trail.
+
+---
+
 ## TD-019: get_tariff v1 — single-distributor resolution, multi-distributor Protocol + fallback deferred
 
 **What.** Task 2.3 landed `get_tariff` on `feature/get-tariff` as a pure lookup

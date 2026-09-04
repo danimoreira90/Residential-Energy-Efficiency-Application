@@ -1,0 +1,1 @@
+"""Solar-domain tests."""
