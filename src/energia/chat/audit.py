@@ -38,11 +38,26 @@ class PIIScrubber:
         re.IGNORECASE,
     )
 
+    # AF-solar (Sprint 3 Task 3.2, spec F10): latitude/longitude can identify a
+    # residence. Matches the key (quoted JSON, single-quoted Python-repr, or
+    # bare key=value) followed by ":" or "=" and a numeric value (optionally
+    # quoted). Only the coordinate KEYS below trigger redaction — unrelated
+    # numeric fields (consumption, tilt, retry counts, ...) are left alone.
+    # Numeric token: optional sign, integer/decimal or leading-dot decimal,
+    # optional scientific exponent (e.g. +12.3456, .5, 1e-05, -98.7654).
+    _COORDINATE_NUMBER: str = r"[+-]?(?:\d+\.\d+|\.\d+|\d+)(?:[eE][+-]?\d+)?"
+    _COORDINATE_PATTERN: re.Pattern[str] = re.compile(
+        r"""(?i)(["']?\b(?:latitude|longitude|lat|lon)\b["']?\s*[:=]\s*)"""
+        r"""(Decimal\((["'])""" + _COORDINATE_NUMBER + r"""\3\)"""
+        r"""|(["']?)""" + _COORDINATE_NUMBER + r"""\4)"""
+    )
+
     def scrub(self, text: str) -> str:
         """Return text with all known PII patterns replaced by placeholders."""
         text = self._CPF_PATTERN.sub("[CPF-REDACTED]", text)
         text = self._UC_JSON_PATTERN.sub(r"\1[UC-REDACTED]\2", text)
         text = self._UC_LABEL_PATTERN.sub(r"\1[UC-REDACTED]", text)
+        text = self._COORDINATE_PATTERN.sub(r"\1[COORDINATE-REDACTED]", text)
         return text
 
 
@@ -111,11 +126,12 @@ class DuckDBAuditCallback(BaseCallbackHandler):
         call_id = self._run_to_call_id.get(str(run_id))
         if call_id is None:
             return
+        clean_output = self._scrubber.scrub(str(output))
         con = connect(self._db_path)
         try:
             con.execute(
                 "UPDATE tool_calls SET output_json = ? WHERE id = ?",
-                [str(output), call_id],
+                [clean_output, call_id],
             )
         finally:
             con.close()
@@ -131,11 +147,12 @@ class DuckDBAuditCallback(BaseCallbackHandler):
         call_id = self._run_to_call_id.get(str(run_id))
         if call_id is None:
             return
+        clean_error = self._scrubber.scrub(str(error))
         con = connect(self._db_path)
         try:
             con.execute(
                 "UPDATE tool_calls SET error = ? WHERE id = ?",
-                [str(error), call_id],
+                [clean_error, call_id],
             )
         finally:
             con.close()
